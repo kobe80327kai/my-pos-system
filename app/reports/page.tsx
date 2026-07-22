@@ -57,12 +57,12 @@ export default function DailyReportPage() {
   const [modalType, setModalType] = useState<'expense' | 'income' | null>(null);
   const [detailModalType, setDetailModalType] = useState<'expense' | 'income' | null>(null);
 
-  // ✨ 修改 Modal 狀態
+  // ✨ 修改 Modal 狀態與數據
   const [editingItem, setEditingItem] = useState<Transaction | null>(null);
   const [editFormData, setEditFormData] = useState({
     date: '',
-    category: '',
-    paymentMethod: '',
+    category: '雜支',
+    paymentMethod: '現金',
     amount: '',
     note: '',
   });
@@ -169,14 +169,15 @@ export default function DailyReportPage() {
     }
   };
 
-  // ✨ 打開修改視窗
-  const handleOpenEdit = (item: Transaction) => {
+  // ✨ 打開「修改」彈跳視窗並填入該筆資料現有內容
+  const handleOpenEdit = (item: Transaction, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     setEditingItem(item);
     setEditFormData({
       date: item.date || selectedDate,
-      category: item.category,
-      paymentMethod: item.payment_method,
-      amount: item.amount.toString(),
+      category: item.category || '雜支',
+      paymentMethod: item.payment_method || '現金',
+      amount: item.amount ? item.amount.toString() : '0',
       note: item.note || '',
     });
   };
@@ -195,7 +196,7 @@ export default function DailyReportPage() {
       const { error } = await supabase
         .from('transactions')
         .update({
-          date: editFormData.date, // 修改日期
+          date: editFormData.date,
           category: editFormData.category,
           payment_method: editFormData.paymentMethod,
           amount: Number(editFormData.amount),
@@ -217,7 +218,8 @@ export default function DailyReportPage() {
   };
 
   // 刪除紀錄
-  const handleDeleteTransaction = async (id: string) => {
+  const handleDeleteTransaction = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     if (!confirm('確定要刪除這筆紀錄嗎？')) return;
 
     try {
@@ -361,7 +363,7 @@ export default function DailyReportPage() {
               onClick={() => setDetailModalType('income')}
               className="bg-blue-50/50 p-3 rounded-xl flex justify-between items-center text-xs cursor-pointer hover:bg-blue-50 transition"
             >
-              <span className="text-blue-700 font-medium">銷售收入小計</span>
+              <span className="text-blue-700 font-medium">銷售與收入小計 (點擊看明細)</span>
               <div className="flex items-center gap-3">
                 <span className="text-blue-500 underline text-[11px]">
                   {dailyTransactions.filter((t) => t.type === 'income').length} 筆
@@ -387,14 +389,16 @@ export default function DailyReportPage() {
                       ${Number(item.amount).toLocaleString()}
                     </span>
                     <button
-                      onClick={() => handleOpenEdit(item)}
-                      className="text-slate-500 hover:text-blue-600 text-[10px] bg-white border border-slate-200 px-1.5 py-0.5 rounded shadow-sm"
+                      type="button"
+                      onClick={(e) => handleOpenEdit(item, e)}
+                      className="text-blue-600 hover:text-blue-800 font-semibold text-[11px] bg-white border border-blue-200 px-2 py-0.5 rounded shadow-sm"
                     >
                       修改
                     </button>
                     <button
-                      onClick={() => handleDeleteTransaction(item.id)}
-                      className="text-rose-400 hover:text-rose-600 text-[10px]"
+                      type="button"
+                      onClick={(e) => handleDeleteTransaction(item.id, e)}
+                      className="text-rose-400 hover:text-rose-600 text-[11px] px-1"
                     >
                       刪除
                     </button>
@@ -437,14 +441,16 @@ export default function DailyReportPage() {
                         -${Number(item.amount).toLocaleString()}
                       </span>
                       <button
-                        onClick={() => handleOpenEdit(item)}
-                        className="text-slate-500 hover:text-blue-600 text-[10px] bg-white border border-slate-200 px-1.5 py-0.5 rounded shadow-sm"
+                        type="button"
+                        onClick={(e) => handleOpenEdit(item, e)}
+                        className="text-blue-600 hover:text-blue-800 font-semibold text-[11px] bg-white border border-blue-200 px-2 py-0.5 rounded shadow-sm"
                       >
                         修改
                       </button>
                       <button
-                        onClick={() => handleDeleteTransaction(item.id)}
-                        className="text-rose-400 hover:text-rose-600 text-[10px]"
+                        type="button"
+                        onClick={(e) => handleDeleteTransaction(item.id, e)}
+                        className="text-rose-400 hover:text-rose-600 text-[11px] px-1"
                       >
                         刪除
                       </button>
@@ -492,11 +498,9 @@ export default function DailyReportPage() {
 
         {/* 可點擊修改並會自動存檔的零用金 與 本日結算 */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-          
-          {/* 零用金欄位 */}
           <div className="bg-amber-50/60 border border-amber-200/80 rounded-2xl p-4 flex justify-between items-center">
             <span className="text-xs font-bold text-amber-800 flex items-center gap-1">
-              零用金 <span className="text-[10px] text-amber-600 font-normal">✏️ 點擊修改</span>
+              零用金 <span className="text-[10px] text-amber-600 font-normal">✏️ 點擊數字修改</span>
             </span>
 
             {isEditingPettyCash ? (
@@ -518,7 +522,6 @@ export default function DailyReportPage() {
             )}
           </div>
 
-          {/* 本日結算 */}
           <div className="bg-emerald-50/60 border border-emerald-200/80 rounded-2xl p-4 flex justify-between items-center">
             <span className="text-xs font-bold text-emerald-800">本日結算</span>
             <span className="text-2xl font-bold font-mono text-emerald-600">
@@ -531,7 +534,6 @@ export default function DailyReportPage() {
       {/* 📊 區塊 4: 盈餘報表 (下方區塊) */}
       <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm space-y-5">
         
-        {/* 頂部標題與頁籤查詢 */}
         <div className="flex flex-wrap justify-between items-center gap-4">
           <div className="flex items-center gap-2">
             <span className="text-blue-500 font-bold">📈</span>
@@ -572,7 +574,6 @@ export default function DailyReportPage() {
               </button>
             </div>
 
-            {/* 自訂日期選擇 */}
             <div className="flex items-center gap-1.5 text-xs text-slate-400 font-mono">
               <input
                 type="date"
@@ -594,16 +595,10 @@ export default function DailyReportPage() {
                 className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-700"
               />
             </div>
-
-            <span className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded text-[10px] font-medium border border-amber-200">
-              管理員
-            </span>
           </div>
         </div>
 
-        {/* 盈餘卡片網格 (5 個卡片) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
-          
           <div className="bg-slate-50/80 rounded-2xl p-4 text-center border border-slate-100">
             <p className="text-xs text-slate-400 font-medium mb-1">銷售金額</p>
             <p className="text-xl font-bold font-mono text-slate-800">
@@ -639,13 +634,106 @@ export default function DailyReportPage() {
             </p>
           </div>
         </div>
-
-        <p className="text-right text-[10px] text-slate-400 font-mono">
-          = 銷售金額 + 佣金 + 雜收 - 雜支
-        </p>
       </div>
 
-      {/* 🪟 Modal 1: 新增支出 / 新增雜收 Modal */}
+      {/* 🪟 Modal 1: ✨ 編輯/修改紀錄 (優先層級 z-50) */}
+      {editingItem && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-100">
+            <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+              <h2 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                <span>✏️</span> 修改紀錄 ({editingItem.type === 'expense' ? '支出' : '收入'})
+              </h2>
+              <button onClick={() => setEditingItem(null)} className="text-slate-400 hover:text-slate-600 text-base">
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="p-6 space-y-4">
+              {/* ✨ 銷售 / 紀錄日期選擇欄位 */}
+              <div className="bg-blue-50/50 p-3 rounded-2xl border border-blue-100">
+                <label className="text-xs text-blue-800 font-bold mb-1.5 block">
+                  📅 銷售 / 紀錄日期
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={editFormData.date}
+                  onChange={(e) => setEditFormData({ ...editFormData, date: e.target.value })}
+                  className="w-full bg-white border border-blue-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-mono font-bold shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-slate-600 font-medium mb-1.5 block">類別</label>
+                  <input
+                    type="text"
+                    value={editFormData.category}
+                    onChange={(e) => setEditFormData({ ...editFormData, category: e.target.value })}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-slate-600 font-medium mb-1.5 block">支付方式</label>
+                  <select
+                    value={editFormData.paymentMethod}
+                    onChange={(e) => setEditFormData({ ...editFormData, paymentMethod: e.target.value })}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 bg-white"
+                  >
+                    <option value="現金">現金</option>
+                    <option value="刷卡">刷卡</option>
+                    <option value="刷卡/分期">刷卡/分期</option>
+                    <option value="無卡分期">無卡分期</option>
+                    <option value="LinePay">LinePay</option>
+                    <option value="匯款">匯款</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-600 font-medium mb-1.5 block">金額 *</label>
+                <input
+                  type="number"
+                  required
+                  value={editFormData.amount}
+                  onChange={(e) => setEditFormData({ ...editFormData, amount: e.target.value })}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-800"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-600 font-medium mb-1.5 block">備註</label>
+                <input
+                  type="text"
+                  value={editFormData.note}
+                  onChange={(e) => setEditFormData({ ...editFormData, note: e.target.value })}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingItem(null)}
+                  className="px-4 py-2 rounded-xl text-xs text-slate-600 border border-slate-200 hover:bg-slate-50"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-sm transition"
+                >
+                  儲存修改
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 🪟 Modal 2: 新增支出 / 新增雜收 */}
       {modalType && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-100">
@@ -742,118 +830,9 @@ export default function DailyReportPage() {
         </div>
       )}
 
-      {/* ✨ 🪟 Modal 2: 修改紀錄 Modal (包含修改日期功能) */}
-      {editingItem && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-100">
-            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
-              <h2 className="text-sm font-bold text-slate-800">
-                修改紀錄 ({editingItem.type === 'expense' ? '支出' : '收入'})
-              </h2>
-              <button onClick={() => setEditingItem(null)} className="text-slate-400 text-sm">
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveEdit} className="p-6 space-y-4">
-              {/* ✨ 日期選擇 */}
-              <div>
-                <label className="text-xs text-slate-600 font-semibold mb-1.5 block">
-                  銷售 / 紀錄日期
-                </label>
-                <input
-                  type="date"
-                  required
-                  value={editFormData.date}
-                  onChange={(e) => setEditFormData({ ...editFormData, date: e.target.value })}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-mono"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-slate-600 font-medium mb-1.5 block">類別</label>
-                  <select
-                    value={editFormData.category}
-                    onChange={(e) => setEditFormData({ ...editFormData, category: e.target.value })}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 bg-white"
-                  >
-                    {editingItem.type === 'expense' ? (
-                      <>
-                        <option value="雜支">雜支</option>
-                        <option value="房租">房租</option>
-                        <option value="採購零件">採購零件</option>
-                        <option value="水電費">水電費</option>
-                      </>
-                    ) : (
-                      <>
-                        <option value="雜收">雜收</option>
-                        <option value="銷售收入">銷售收入</option>
-                        <option value="佣金">佣金</option>
-                      </>
-                    )}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-xs text-slate-600 font-medium mb-1.5 block">支付方式</label>
-                  <select
-                    value={editFormData.paymentMethod}
-                    onChange={(e) => setEditFormData({ ...editFormData, paymentMethod: e.target.value })}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 bg-white"
-                  >
-                    <option value="現金">現金</option>
-                    <option value="刷卡">刷卡</option>
-                    <option value="LinePay">LinePay</option>
-                    <option value="匯款">匯款</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs text-slate-600 font-medium mb-1.5 block">金額 *</label>
-                <input
-                  type="number"
-                  required
-                  value={editFormData.amount}
-                  onChange={(e) => setEditFormData({ ...editFormData, amount: e.target.value })}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs text-slate-600 font-medium mb-1.5 block">備註</label>
-                <input
-                  type="text"
-                  value={editFormData.note}
-                  onChange={(e) => setEditFormData({ ...editFormData, note: e.target.value })}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setEditingItem(null)}
-                  className="px-4 py-2 rounded-xl text-xs text-slate-600 border border-slate-200"
-                >
-                  取消
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-xl text-xs bg-blue-600 text-white font-semibold"
-                >
-                  儲存修改
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* 🪟 Modal 3: 明細檢視視窗 */}
       {detailModalType && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-40 p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100">
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
               <h2 className="text-sm font-bold text-slate-800">
@@ -885,16 +864,15 @@ export default function DailyReportPage() {
                         ${Number(item.amount).toLocaleString()}
                       </span>
                       <button
-                        onClick={() => {
-                          setDetailModalType(null);
-                          handleOpenEdit(item);
-                        }}
-                        className="px-2 py-1 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 text-[11px]"
+                        type="button"
+                        onClick={(e) => handleOpenEdit(item, e)}
+                        className="px-2 py-1 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 text-[11px] font-semibold"
                       >
                         修改
                       </button>
                       <button
-                        onClick={() => handleDeleteTransaction(item.id)}
+                        type="button"
+                        onClick={(e) => handleDeleteTransaction(item.id, e)}
                         className="px-2 py-1 bg-rose-50 text-rose-600 rounded-lg hover:bg-rose-100 text-[11px]"
                       >
                         刪除
