@@ -1,10 +1,8 @@
-export const dynamic = 'force-dynamic'
 'use client';
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabase'; // 載入你的 Supabase 設定
-
+import { supabase } from '../../lib/supabase';
 // 方案資料型態
 interface Plan {
   id: string;

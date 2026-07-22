@@ -1,9 +1,7 @@
-export const dynamic = 'force-dynamic'
 'use client';
 
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
-
 interface UsedPhone {
   id?: number;
   code: string;

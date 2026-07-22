@@ -1,9 +1,7 @@
-export const dynamic = 'force-dynamic'
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
-
+import { supabase } from '../../lib/supabase'; // 改成這個相對路徑
 // 收支記錄資料型態
 interface Transaction {
   id: string;

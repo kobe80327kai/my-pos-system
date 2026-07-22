@@ -1,8 +1,7 @@
-export const dynamic = 'force-dynamic'
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase'; // 請確認 your Supabase client 檔案路徑
+import { supabase } from '../lib/supabase';
 
 interface Product {
   id: string;

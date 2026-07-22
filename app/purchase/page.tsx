@@ -1,9 +1,7 @@
-export const dynamic = 'force-dynamic'
 'use client';
 
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
-
 // 定義商品型別
 interface Product {
   id: number;

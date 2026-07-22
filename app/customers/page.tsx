@@ -1,8 +1,7 @@
-export const dynamic = 'force-dynamic'
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase'; // 請確認您的 Supabase client 引入路徑
+import { supabase } from '../../lib/supabase';
 
 // 銷售歷史型態
 interface SaleRecord {

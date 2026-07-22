@@ -1,8 +1,6 @@
-export const dynamic = 'force-dynamic'
 'use client';
 
 import React, { useState, useEffect } from 'react';
-// @ts-ignore
 import { supabase } from '../../lib/supabase';
 
 // 1. 維修單資料型態
