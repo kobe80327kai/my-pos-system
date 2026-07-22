@@ -17,22 +17,39 @@ interface Plan {
   actualCommission: number;
 }
 
+const LOCAL_STORAGE_KEY = 'my_pos_system_plans_data';
+
+const DEFAULT_PLANS: Plan[] = [
+  {
+    id: '1',
+    code: 'PLN0001',
+    name: 'S',
+    carrier: '遠傳電信',
+    type: '新申辦',
+    network: '5G',
+    monthlyFee: 699,
+    contractPeriod: 24,
+    prepayment: 0,
+    storeCommission: 800,
+    actualCommission: 1200,
+  },
+];
+
 export default function PlansPage() {
-  const [plans, setPlans] = useState<Plan[]>([
-    {
-      id: '1',
-      code: 'PLN0001',
-      name: 'S',
-      carrier: '遠傳電信',
-      type: '新申辦',
-      network: '5G',
-      monthlyFee: 699,
-      contractPeriod: 24,
-      prepayment: 0,
-      storeCommission: 800,
-      actualCommission: 1200,
-    },
-  ]);
+  const [plans, setPlans] = useState<Plan[]>(() => {
+    // 初始化時先從 localStorage 讀取，若沒有則使用預設值
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          console.error('解析 localStorage 失敗:', e);
+        }
+      }
+    }
+    return DEFAULT_PLANS;
+  });
 
   const [searchQuery, setSearchQuery] = useState('');
   const [carrierFilter, setCarrierFilter] = useState('全部電信');
@@ -56,6 +73,11 @@ export default function PlansPage() {
     actualCommission: 1200,
   });
 
+  // 當 plans 改變時，同步儲存到 localStorage
+  useEffect(() => {
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(plans));
+  }, [plans]);
+
   useEffect(() => {
     fetchPlans();
   }, []);
@@ -65,7 +87,7 @@ export default function PlansPage() {
       const { data, error } = await supabase.from('plans').select('*').order('created_at', { ascending: false });
       if (data && !error && data.length > 0) {
         const mapped = data.map((item: any) => ({
-          id: item.id,
+          id: String(item.id),
           code: item.code || 'PLN0001',
           name: item.name || '',
           carrier: item.carrier || '遠傳電信',
@@ -80,7 +102,7 @@ export default function PlansPage() {
         setPlans(mapped);
       }
     } catch (err) {
-      console.error('抓取方案失敗:', err);
+      console.log('使用本地暫存資料運作中');
     }
   };
 
@@ -149,21 +171,21 @@ export default function PlansPage() {
 
     if (editingPlan) {
       // 編輯邏輯
-      const { error } = await supabase.from('plans').update(payload).eq('id', editingPlan.id);
-      if (error) {
-        // 如果資料庫還沒建立，前端同步更新
-        setPlans((prev) => prev.map((p) => (p.id === editingPlan.id ? { ...p, ...formData } : p)));
-      } else {
-        fetchPlans();
+      try {
+        await supabase.from('plans').update(payload).eq('id', editingPlan.id);
+      } catch (err) {
+        // 略過遠端錯誤，直接更新前端與 LocalStorage
       }
+      setPlans((prev) => prev.map((p) => (p.id === editingPlan.id ? { ...p, ...formData } : p)));
     } else {
       // 新增邏輯
-      const { error } = await supabase.from('plans').insert([payload]);
-      if (error) {
-        setPlans((prev) => [{ id: String(Date.now()), ...formData }, ...prev]);
-      } else {
-        fetchPlans();
+      const newId = String(Date.now());
+      try {
+        await supabase.from('plans').insert([payload]);
+      } catch (err) {
+        // 略過遠端錯誤
       }
+      setPlans((prev) => [{ id: newId, ...formData }, ...prev]);
     }
 
     setIsModalOpen(false);
@@ -173,7 +195,11 @@ export default function PlansPage() {
   // 🗑️ 刪除
   const handleDelete = async (id: string) => {
     if (confirm('確定要刪除此方案嗎？')) {
-      await supabase.from('plans').delete().eq('id', id);
+      try {
+        await supabase.from('plans').delete().eq('id', id);
+      } catch (err) {
+        // 略過遠端錯誤
+      }
       setPlans((prev) => prev.filter((p) => p.id !== id));
     }
   };
