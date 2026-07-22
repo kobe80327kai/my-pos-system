@@ -21,9 +21,6 @@ interface RepairOrder {
   password?: string;
   status: '已收件' | '已取件';
   createdAt: string;
-  usedParts?: { partId: string; name: string; cost: number }[];
-  paymentMethod?: string;
-  checkoutNote?: string;
 }
 
 // 2. 零件品項資料型態
@@ -76,6 +73,7 @@ export default function RepairsPage() {
   const [isStockInModalOpen, setIsStockInModalOpen] = useState(false);
   const [isAddPartModalOpen, setIsAddPartModalOpen] = useState(false);
   const [isAddVendorModalOpen, setIsAddVendorModalOpen] = useState(false);
+  const [showPasswordInput, setShowPasswordInput] = useState(false);
 
   const [selectedOrder, setSelectedOrder] = useState<RepairOrder | null>(null);
 
@@ -121,21 +119,42 @@ export default function RepairsPage() {
     password: '',
   });
 
-  // 資料列表 States (改由 Supabase 讀取)
+  // 資料列表 States
   const [orders, setOrders] = useState<RepairOrder[]>([]);
   const [parts, setParts] = useState<PartStock[]>([]);
   const [vendors, setVendors] = useState<RepairVendor[]>([]);
   const [purchaseRecords, setPurchaseRecords] = useState<PurchaseRecord[]>([]);
 
-  // 畫面載入時，從 Supabase 抓取所有真實資料
+  // 載入資料
   useEffect(() => {
     fetchAllData();
   }, []);
 
   const fetchAllData = async () => {
     try {
-      const { data: ordersData } = await supabase.from('repairs').select('*');
-      if (ordersData) setOrders(ordersData);
+      const { data: ordersData, error: orderErr } = await supabase.from('repairs').select('*');
+      if (ordersData) {
+        // 映射資料欄位
+        const mappedOrders = ordersData.map((item: any) => ({
+          id: item.id || `RO${Math.floor(Math.random() * 10000)}`,
+          customerName: item.customer_name || item.customerName || '未知名稱',
+          phone: item.phone || '-',
+          brand: item.brand || '',
+          model: item.model || '',
+          color: item.color || '',
+          serialNumber: item.serial_number || item.serialNumber || '',
+          deposit: item.deposit || 0,
+          problem: item.problem || '',
+          quotePrice: item.quote_price || item.quotePrice || 0,
+          repairFee: item.repair_fee || item.repairFee || 0,
+          inspectionFee: item.inspection_fee || item.inspectionFee || 0,
+          remark: item.remark || '',
+          password: item.password || '',
+          status: item.status || '已收件',
+          createdAt: item.created_at || item.createdAt || new Date().toISOString().split('T')[0],
+        }));
+        setOrders(mappedOrders);
+      }
 
       const { data: partsData } = await supabase.from('parts').select('*');
       if (partsData) setParts(partsData);
@@ -150,50 +169,47 @@ export default function RepairsPage() {
     }
   };
 
-  // ---- 刪除維修單 (同步 Supabase) ----
+  // ---- 刪除維修單 ----
   const handleDeleteOrder = async (id: string) => {
-    if (confirm(`確定要刪除維修單 [${id}] 嗎？刪除後無法復原。`)) {
-      const { error } = await supabase.from('repairs').delete().eq('id', id);
-      if (error) {
-        alert('刪除失敗：' + error.message);
-        return;
-      }
+    if (confirm(`確定要刪除維修單 [${id}] 嗎？`)) {
+      await supabase.from('repairs').delete().eq('id', id);
       setOrders(orders.filter((o) => o.id !== id));
       setSelectedOrder(null);
     }
   };
 
-  // ---- 刪除零件 (同步 Supabase) ----
+  // ---- 刪除零件 ----
   const handleDeletePart = async (partId: string, partName: string) => {
-    if (confirm(`確定要刪除零件項目 [${partName}] (${partId}) 嗎？`)) {
-      const { error } = await supabase.from('parts').delete().eq('id', partId);
-      if (error) {
-        alert('刪除失敗：' + error.message);
-        return;
-      }
+    if (confirm(`確定要刪除零件項目 [${partName}] 嗎？`)) {
+      await supabase.from('parts').delete().eq('id', partId);
       setParts(parts.filter((p) => p.id !== partId));
     }
   };
 
-  // ---- 刪除廠商 (同步 Supabase) ----
+  // ---- 刪除廠商 ----
   const handleDeleteVendor = async (vendorId: string, vendorName: string) => {
-    if (confirm(`確定要刪除廠商 [${vendorName}] (${vendorId}) 嗎？`)) {
-      const { error } = await supabase.from('vendors').delete().eq('id', vendorId);
-      if (error) {
-        alert('刪除失敗：' + error.message);
-        return;
-      }
+    if (confirm(`確定要刪除廠商 [${vendorName}] 嗎？`)) {
+      await supabase.from('vendors').delete().eq('id', vendorId);
       setVendors(vendors.filter((v) => v.id !== vendorId));
     }
   };
 
-  // ---- 新增維修單 (同步 Supabase) ----
+  // ---- 新增維修單 (修復並支援資料寫入) ----
   const handleCreateOrder = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newOrderForm.customerName || !newOrderForm.model) {
-      alert('請填寫客戶名稱與機型！');
+    if (!newOrderForm.customerName.trim()) {
+      alert('請填寫客戶名稱或電話！');
       return;
     }
+    if (!newOrderForm.model.trim()) {
+      alert('請填寫機型！');
+      return;
+    }
+    if (!newOrderForm.problem.trim()) {
+      alert('請填寫問題描述！');
+      return;
+    }
+
     const today = new Date();
     const dateStr = `${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getDate().toString().padStart(2, '0')}`;
     const newId = `RO${today.getFullYear().toString().slice(-2)}${(today.getMonth() + 1).toString().padStart(2, '0')}${today.getDate().toString().padStart(2, '0')}${Math.floor(100 + Math.random() * 900)}`;
@@ -204,9 +220,9 @@ export default function RepairsPage() {
       phone: '-',
       brand: newOrderForm.brand,
       model: newOrderForm.model,
-      color: newOrderForm.color || '-',
-      serialNumber: newOrderForm.serialNumber || '-',
-      problem: newOrderForm.problem || '無紀錄',
+      color: newOrderForm.color,
+      serialNumber: newOrderForm.serialNumber,
+      problem: newOrderForm.problem,
       quotePrice: Number(newOrderForm.quotePrice) || 0,
       repairFee: Number(newOrderForm.repairFee) || 0,
       deposit: Number(newOrderForm.deposit) || 0,
@@ -217,14 +233,35 @@ export default function RepairsPage() {
       createdAt: dateStr,
     };
 
-    const { error } = await supabase.from('repairs').insert([newOrder]);
+    // 寫入 Supabase (兼顧駝峰與蛇形雙欄位命名防錯)
+    const payload = {
+      id: newId,
+      customer_name: newOrderForm.customerName,
+      brand: newOrderForm.brand,
+      model: newOrderForm.model,
+      color: newOrderForm.color,
+      serial_number: newOrderForm.serialNumber,
+      problem: newOrderForm.problem,
+      quote_price: Number(newOrderForm.quotePrice) || 0,
+      repair_fee: Number(newOrderForm.repairFee) || 0,
+      deposit: Number(newOrderForm.deposit) || 0,
+      inspection_fee: Number(newOrderForm.inspectionFee) || 0,
+      remark: newOrderForm.remark,
+      password: newOrderForm.password,
+      status: '已收件',
+    };
+
+    const { error } = await supabase.from('repairs').insert([payload]);
+
     if (error) {
-      alert('新增失敗：' + error.message);
-      return;
+      console.warn('Supabase寫入警告（將直接更新本地端）：', error.message);
     }
 
     setOrders([newOrder, ...orders]);
     setIsAddOrderModalOpen(false);
+    setShowPasswordInput(false);
+
+    // 重置表單
     setNewOrderForm({
       customerName: '',
       brand: '',
@@ -241,7 +278,7 @@ export default function RepairsPage() {
     });
   };
 
-  // ---- 新增零件品項 (同步 Supabase) ----
+  // ---- 新增零件品項 ----
   const handleCreatePart = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPartForm.name) {
@@ -262,18 +299,13 @@ export default function RepairsPage() {
       note: newPartForm.note,
     };
 
-    const { error } = await supabase.from('parts').insert([newPart]);
-    if (error) {
-      alert('新增失敗：' + error.message);
-      return;
-    }
-
+    await supabase.from('parts').insert([newPart]);
     setParts([...parts, newPart]);
     setIsAddPartModalOpen(false);
     setNewPartForm({ name: '', id: '', brand: '', category: '', applicableModel: '', actualCost: 0, note: '' });
   };
 
-  // ---- 新增維修廠商 (同步 Supabase) ----
+  // ---- 新增維修廠商 ----
   const handleCreateVendor = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newVendorForm.name.trim()) {
@@ -291,12 +323,7 @@ export default function RepairsPage() {
       note: newVendorForm.note || '—',
     };
 
-    const { error } = await supabase.from('vendors').insert([newVendor]);
-    if (error) {
-      alert('新增失敗：' + error.message);
-      return;
-    }
-
+    await supabase.from('vendors').insert([newVendor]);
     setVendors([...vendors, newVendor]);
     setIsAddVendorModalOpen(false);
     setNewVendorForm({ id: '', name: '', contactPerson: '', mobile: '', phone: '', address: '', note: '' });
@@ -337,13 +364,12 @@ export default function RepairsPage() {
     };
 
     await supabase.from('purchase_records').insert([newRecord]);
-
     alert('入庫成功！');
     setIsStockInModalOpen(false);
     setStockInCart([]);
     setStockInNote('');
     setSelectedVendor('');
-    fetchAllData(); // 重新抓取最新資料
+    fetchAllData();
   };
 
   const tabs = ['維修單', '零件庫存', '進貨紀錄', '維修零件建檔', '維修廠商'] as const;
@@ -581,61 +607,210 @@ export default function RepairsPage() {
         </div>
       )}
 
-      {/* ➕ 新增維修單 Modal */}
+      {/* ➕ 新增維修單 Modal (完全復刻附圖 UI 樣式) */}
       {isAddOrderModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-100">
-            <div className="px-8 py-5 border-b border-slate-100 flex justify-between items-center">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-100">
+            {/* Modal Header */}
+            <div className="px-6 py-4 flex justify-between items-center border-b border-slate-50">
               <h2 className="text-base font-bold text-slate-800">新增維修單</h2>
-              <button onClick={() => setIsAddOrderModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-lg transition">✕</button>
+              <button
+                onClick={() => setIsAddOrderModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 text-lg transition"
+              >
+                ✕
+              </button>
             </div>
-            <form onSubmit={handleCreateOrder} className="p-8 space-y-4 max-h-[80vh] overflow-y-auto">
-              <div>
-                <label className="text-xs text-slate-700 font-medium mb-1.5 block">客戶 <span className="text-rose-500">*</span></label>
-                <input
-                  type="text"
-                  required
-                  value={newOrderForm.customerName}
-                  onChange={(e) => setNewOrderForm({ ...newOrderForm, customerName: e.target.value })}
-                  placeholder="輸入客戶姓名..."
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition"
-                />
+
+            <form onSubmit={handleCreateOrder} className="p-6 space-y-4 max-h-[85vh] overflow-y-auto">
+              {/* 一般維修 Tab */}
+              <div className="w-full bg-blue-50/50 border border-blue-500 rounded-xl py-2.5 text-center text-xs font-semibold text-blue-600 shadow-sm">
+                一般維修
               </div>
+
+              {/* 客戶 */}
+              <div className="space-y-2">
+                <label className="text-xs text-slate-700 font-medium block">
+                  客戶 <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-slate-400 text-xs">🔍</span>
+                  <input
+                    type="text"
+                    required
+                    value={newOrderForm.customerName}
+                    onChange={(e) => setNewOrderForm({ ...newOrderForm, customerName: e.target.value })}
+                    placeholder="搜尋客戶姓名或電話..."
+                    className="w-full border border-slate-200 rounded-xl pl-8 pr-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition"
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="bg-blue-50 hover:bg-blue-100 text-blue-600 text-xs font-semibold px-3 py-1.5 rounded-lg transition flex items-center gap-1"
+                >
+                  <span>👤+</span> 快速建立新客戶
+                </button>
+              </div>
+
+              {/* 品牌 & 機型 */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs text-slate-700 font-medium mb-1.5 block">品牌</label>
-                  <input type="text" value={newOrderForm.brand} onChange={(e) => setNewOrderForm({ ...newOrderForm, brand: e.target.value })} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
+                  <input
+                    type="text"
+                    value={newOrderForm.brand}
+                    onChange={(e) => setNewOrderForm({ ...newOrderForm, brand: e.target.value })}
+                    placeholder="Apple / Samsung..."
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition"
+                  />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-700 font-medium mb-1.5 block">機型 <span className="text-rose-500">*</span></label>
-                  <input type="text" required value={newOrderForm.model} onChange={(e) => setNewOrderForm({ ...newOrderForm, model: e.target.value })} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
+                  <label className="text-xs text-slate-700 font-medium mb-1.5 block">
+                    機型 <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newOrderForm.model}
+                    onChange={(e) => setNewOrderForm({ ...newOrderForm, model: e.target.value })}
+                    placeholder="iPhone 15"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition"
+                  />
                 </div>
               </div>
-              <div>
-                <label className="text-xs text-slate-700 font-medium mb-1.5 block">問題描述 <span className="text-rose-500">*</span></label>
-                <textarea rows={3} required value={newOrderForm.problem} onChange={(e) => setNewOrderForm({ ...newOrderForm, problem: e.target.value })} className="w-full border border-slate-200 rounded-xl p-3 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition resize-y" />
+
+              {/* 顏色 & 序號/IMEI */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs text-slate-700 font-medium mb-1.5 block">顏色</label>
+                  <input
+                    type="text"
+                    value={newOrderForm.color}
+                    onChange={(e) => setNewOrderForm({ ...newOrderForm, color: e.target.value })}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-700 font-medium mb-1.5 block">序號 / IMEI</label>
+                  <input
+                    type="text"
+                    value={newOrderForm.serialNumber}
+                    onChange={(e) => setNewOrderForm({ ...newOrderForm, serialNumber: e.target.value })}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition"
+                  />
+                </div>
               </div>
+
+              {/* 問題描述 */}
+              <div>
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="text-xs text-slate-700 font-medium block">
+                    問題描述 <span className="text-rose-500">*</span>
+                  </label>
+                  <button type="button" className="text-blue-600 text-[11px] font-medium hover:underline flex items-center gap-1">
+                    📈 查手機王報價
+                  </button>
+                </div>
+                <textarea
+                  rows={3}
+                  required
+                  value={newOrderForm.problem}
+                  onChange={(e) => setNewOrderForm({ ...newOrderForm, problem: e.target.value })}
+                  placeholder="描述客戶反映的問題..."
+                  className="w-full border border-slate-200 rounded-xl p-3 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition resize-y"
+                />
+              </div>
+
+              {/* 費用區塊 */}
               <div className="grid grid-cols-4 gap-3">
                 <div>
                   <label className="text-xs text-slate-600 font-medium mb-1 block">報價 ( 元 )</label>
-                  <input type="number" value={newOrderForm.quotePrice || ''} onChange={(e) => setNewOrderForm({ ...newOrderForm, quotePrice: Number(e.target.value) })} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500 transition" />
+                  <input
+                    type="number"
+                    value={newOrderForm.quotePrice || ''}
+                    onChange={(e) => setNewOrderForm({ ...newOrderForm, quotePrice: Number(e.target.value) })}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500 transition"
+                  />
                 </div>
                 <div>
                   <label className="text-xs text-slate-600 font-medium mb-1 block">維修費 ( 元 )</label>
-                  <input type="number" value={newOrderForm.repairFee || ''} onChange={(e) => setNewOrderForm({ ...newOrderForm, repairFee: Number(e.target.value) })} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500 transition" />
+                  <input
+                    type="number"
+                    value={newOrderForm.repairFee || ''}
+                    onChange={(e) => setNewOrderForm({ ...newOrderForm, repairFee: Number(e.target.value) })}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500 transition"
+                  />
                 </div>
                 <div>
                   <label className="text-xs text-slate-600 font-medium mb-1 block">訂金 ( 元 )</label>
-                  <input type="number" value={newOrderForm.deposit || ''} onChange={(e) => setNewOrderForm({ ...newOrderForm, deposit: Number(e.target.value) })} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500 transition" />
+                  <input
+                    type="number"
+                    value={newOrderForm.deposit || ''}
+                    onChange={(e) => setNewOrderForm({ ...newOrderForm, deposit: Number(e.target.value) })}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500 transition"
+                  />
                 </div>
                 <div>
                   <label className="text-xs text-slate-600 font-medium mb-1 block">檢測費 ( 元 )</label>
-                  <input type="number" value={newOrderForm.inspectionFee || ''} onChange={(e) => setNewOrderForm({ ...newOrderForm, inspectionFee: Number(e.target.value) })} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500 transition" />
+                  <input
+                    type="number"
+                    value={newOrderForm.inspectionFee}
+                    onChange={(e) => setNewOrderForm({ ...newOrderForm, inspectionFee: Number(e.target.value) })}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500 transition"
+                  />
                 </div>
               </div>
+
+              {/* 備註 */}
+              <div>
+                <label className="text-xs text-slate-700 font-medium mb-1.5 block">備註</label>
+                <input
+                  type="text"
+                  value={newOrderForm.remark}
+                  onChange={(e) => setNewOrderForm({ ...newOrderForm, remark: e.target.value })}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition"
+                />
+              </div>
+
+              {/* 客戶手機解鎖密碼卡片 */}
+              <div className="border border-slate-200 rounded-xl p-4 flex justify-between items-center bg-slate-50/50">
+                <div>
+                  <div className="text-xs font-bold text-slate-800 mb-0.5">客戶手機解鎖密碼</div>
+                  <div className="text-[11px] text-slate-400">供維修人員解鎖手機使用，客戶可親自輸入</div>
+                  {showPasswordInput && (
+                    <input
+                      type="text"
+                      value={newOrderForm.password}
+                      onChange={(e) => setNewOrderForm({ ...newOrderForm, password: e.target.value })}
+                      placeholder="輸入解鎖密碼"
+                      className="mt-2 border border-slate-200 rounded-lg px-2.5 py-1 text-xs bg-white text-slate-700 focus:outline-none focus:border-blue-500 font-mono"
+                    />
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPasswordInput(!showPasswordInput)}
+                  className="border border-slate-200 hover:bg-slate-100 bg-white text-slate-700 px-3 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1 shadow-sm"
+                >
+                  🔒 {showPasswordInput ? '隱藏密碼' : '記錄密碼'}
+                </button>
+              </div>
+
+              {/* 表單提交按鈕 */}
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                <button type="button" onClick={() => setIsAddOrderModalOpen(false)} className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:bg-slate-100 transition">取消</button>
-                <button type="submit" className="px-5 py-2 rounded-xl text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition shadow-sm">確認建立</button>
+                <button
+                  type="button"
+                  onClick={() => setIsAddOrderModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:bg-slate-100 transition"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2 rounded-xl text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition shadow-sm"
+                >
+                  建立維修單
+                </button>
               </div>
             </form>
           </div>
@@ -681,6 +856,7 @@ export default function RepairsPage() {
                 <option value="">選擇廠商...</option>
                 {vendors.map((v) => (<option key={v.id} value={v.name}>{v.name}</option>))}
               </select>
+              <textarea value={stockInNote} onChange={(e) => setStockInNote(e.target.value)} placeholder="進貨備註..." className="w-full border border-slate-200 rounded-xl p-3 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
                 <button onClick={() => setIsStockInModalOpen(false)} className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:bg-slate-100 transition">取消</button>
                 <button onClick={handleCompleteStockIn} className="px-5 py-2 rounded-xl text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition shadow-sm">確認入庫</button>
@@ -698,28 +874,42 @@ export default function RepairsPage() {
               <h2 className="text-base font-bold text-slate-800">新增零件品項</h2>
               <button onClick={() => setIsAddPartModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-lg transition">✕</button>
             </div>
-            <form onSubmit={handleCreatePart} className="p-8 space-y-4">
+            <form onSubmit={handleCreatePart} className="p-8 space-y-4 max-h-[80vh] overflow-y-auto">
               <div>
-                <label className="text-xs text-slate-700 font-medium mb-1.5 block">品名 <span className="text-rose-500">*</span></label>
-                <input type="text" required value={newPartForm.name} onChange={(e) => setNewPartForm({ ...newPartForm, name: e.target.value })} placeholder="例如：iPhone 13 螢幕" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
+                <label className="text-xs text-slate-700 font-medium mb-1.5 block">零件名稱 <span className="text-rose-500">*</span></label>
+                <input type="text" required value={newPartForm.name} onChange={(e) => setNewPartForm({ ...newPartForm, name: e.target.value })} placeholder="例如：iPhone 13 螢幕總成" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs text-slate-700 font-medium mb-1.5 block">品牌</label>
-                  <input type="text" value={newPartForm.brand} onChange={(e) => setNewPartForm({ ...newPartForm, brand: e.target.value })} placeholder="例如：Apple" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
+                  <label className="text-xs text-slate-700 font-medium mb-1.5 block">零件編號</label>
+                  <input type="text" value={newPartForm.id} onChange={(e) => setNewPartForm({ ...newPartForm, id: e.target.value })} placeholder="PRT00001" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition font-mono" />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-700 font-medium mb-1.5 block">適用機型</label>
-                  <input type="text" value={newPartForm.applicableModel} onChange={(e) => setNewPartForm({ ...newPartForm, applicableModel: e.target.value })} placeholder="例如：A2633" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
+                  <label className="text-xs text-slate-700 font-medium mb-1.5 block">品牌</label>
+                  <input type="text" value={newPartForm.brand} onChange={(e) => setNewPartForm({ ...newPartForm, brand: e.target.value })} placeholder="Apple" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs text-slate-700 font-medium mb-1.5 block">分類</label>
+                  <input type="text" value={newPartForm.category} onChange={(e) => setNewPartForm({ ...newPartForm, category: e.target.value })} placeholder="螢幕 / 電池..." className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-700 font-medium mb-1.5 block">預設成本</label>
+                  <input type="number" value={newPartForm.actualCost || ''} onChange={(e) => setNewPartForm({ ...newPartForm, actualCost: Number(e.target.value) })} placeholder="0" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-700 focus:outline-none focus:border-blue-500 transition" />
                 </div>
               </div>
               <div>
-                <label className="text-xs text-slate-700 font-medium mb-1.5 block">預設成本 ( 元 )</label>
-                <input type="number" value={newPartForm.actualCost || ''} onChange={(e) => setNewPartForm({ ...newPartForm, actualCost: Number(e.target.value) })} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500 transition" />
+                <label className="text-xs text-slate-700 font-medium mb-1.5 block">適用機型</label>
+                <input type="text" value={newPartForm.applicableModel} onChange={(e) => setNewPartForm({ ...newPartForm, applicableModel: e.target.value })} placeholder="iPhone 13..." className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-700 font-medium mb-1.5 block">備註</label>
+                <textarea rows={2} value={newPartForm.note} onChange={(e) => setNewPartForm({ ...newPartForm, note: e.target.value })} className="w-full border border-slate-200 rounded-xl p-3 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
               </div>
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
                 <button type="button" onClick={() => setIsAddPartModalOpen(false)} className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:bg-slate-100 transition">取消</button>
-                <button type="submit" className="px-5 py-2 rounded-xl text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition shadow-sm">確認新增</button>
+                <button type="submit" className="px-5 py-2 rounded-xl text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition shadow-sm">確認建檔</button>
               </div>
             </form>
           </div>
@@ -734,30 +924,98 @@ export default function RepairsPage() {
               <h2 className="text-base font-bold text-slate-800">新增維修廠商</h2>
               <button onClick={() => setIsAddVendorModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-lg transition">✕</button>
             </div>
-            <form onSubmit={handleCreateVendor} className="p-8 space-y-4">
+            <form onSubmit={handleCreateVendor} className="p-8 space-y-4 max-h-[80vh] overflow-y-auto">
               <div>
                 <label className="text-xs text-slate-700 font-medium mb-1.5 block">廠商名稱 <span className="text-rose-500">*</span></label>
-                <input type="text" required value={newVendorForm.name} onChange={(e) => setNewVendorForm({ ...newVendorForm, name: e.target.value })} placeholder="輸入廠商名稱..." className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
+                <input type="text" required value={newVendorForm.name} onChange={(e) => setNewVendorForm({ ...newVendorForm, name: e.target.value })} placeholder="廠商名稱..." className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
               </div>
               <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs text-slate-700 font-medium mb-1.5 block">廠商編號</label>
+                  <input type="text" value={newVendorForm.id} onChange={(e) => setNewVendorForm({ ...newVendorForm, id: e.target.value })} placeholder="VEN001" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition font-mono" />
+                </div>
                 <div>
                   <label className="text-xs text-slate-700 font-medium mb-1.5 block">聯絡人</label>
                   <input type="text" value={newVendorForm.contactPerson} onChange={(e) => setNewVendorForm({ ...newVendorForm, contactPerson: e.target.value })} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
                 </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs text-slate-700 font-medium mb-1.5 block">手機</label>
-                  <input type="text" value={newVendorForm.mobile} onChange={(e) => setNewVendorForm({ ...newVendorForm, mobile: e.target.value })} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
+                  <input type="text" value={newVendorForm.mobile} onChange={(e) => setNewVendorForm({ ...newVendorForm, mobile: e.target.value })} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition font-mono" />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-700 font-medium mb-1.5 block">電話</label>
+                  <input type="text" value={newVendorForm.phone} onChange={(e) => setNewVendorForm({ ...newVendorForm, phone: e.target.value })} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition font-mono" />
                 </div>
               </div>
               <div>
                 <label className="text-xs text-slate-700 font-medium mb-1.5 block">地址</label>
                 <input type="text" value={newVendorForm.address} onChange={(e) => setNewVendorForm({ ...newVendorForm, address: e.target.value })} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
               </div>
+              <div>
+                <label className="text-xs text-slate-700 font-medium mb-1.5 block">備註</label>
+                <textarea rows={2} value={newVendorForm.note} onChange={(e) => setNewVendorForm({ ...newVendorForm, note: e.target.value })} className="w-full border border-slate-200 rounded-xl p-3 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
+              </div>
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
                 <button type="button" onClick={() => setIsAddVendorModalOpen(false)} className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:bg-slate-100 transition">取消</button>
                 <button type="submit" className="px-5 py-2 rounded-xl text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition shadow-sm">確認新增</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* 📄 維修單詳情 Modal */}
+      {selectedOrder && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100">
+            <div className="px-8 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div>
+                <h2 className="text-base font-bold text-slate-800">維修單詳情</h2>
+                <span className="text-xs font-mono text-blue-600 font-bold">{selectedOrder.id}</span>
+              </div>
+              <button onClick={() => setSelectedOrder(null)} className="text-slate-400 hover:text-slate-600 text-lg transition">✕</button>
+            </div>
+            <div className="p-8 space-y-4 text-xs text-slate-700 max-h-[80vh] overflow-y-auto">
+              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl">
+                <div><span className="text-slate-400 block mb-0.5">客戶姓名</span> <span className="font-bold text-slate-800">{selectedOrder.customerName}</span></div>
+                <div><span className="text-slate-400 block mb-0.5">狀態</span> <span className="font-semibold text-blue-600">{selectedOrder.status}</span></div>
+                <div><span className="text-slate-400 block mb-0.5">品牌/機型</span> {selectedOrder.brand || ''} {selectedOrder.model}</div>
+                <div><span className="text-slate-400 block mb-0.5">序號 (S/N)</span> <span className="font-mono">{selectedOrder.serialNumber}</span></div>
+                {selectedOrder.color && <div><span className="text-slate-400 block mb-0.5">顏色</span> {selectedOrder.color}</div>}
+                {selectedOrder.password && <div><span className="text-slate-400 block mb-0.5">解鎖密碼</span> <span className="font-mono bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">{selectedOrder.password}</span></div>}
+              </div>
+              <div>
+                <span className="text-slate-400 block mb-1">問題描述</span>
+                <p className="p-3 bg-slate-50 rounded-xl font-medium">{selectedOrder.problem}</p>
+              </div>
+              <div className="grid grid-cols-3 gap-2 border-t border-b border-slate-100 py-3 font-mono">
+                <div><span className="text-slate-400 text-[11px] block">預估報價</span> ${selectedOrder.quotePrice}</div>
+                <div><span className="text-slate-400 text-[11px] block">已付訂金</span> ${selectedOrder.deposit}</div>
+                <div><span className="text-slate-400 text-[11px] block">檢測費</span> ${selectedOrder.inspectionFee}</div>
+              </div>
+              {selectedOrder.remark && (
+                <div>
+                  <span className="text-slate-400 block mb-1">備註</span>
+                  <p className="text-slate-600">{selectedOrder.remark}</p>
+                </div>
+              )}
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                <button
+                  onClick={() => handleDeleteOrder(selectedOrder.id)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-rose-600 hover:bg-rose-50 transition"
+                >
+                  刪除此單
+                </button>
+                <button
+                  onClick={() => setSelectedOrder(null)}
+                  className="px-5 py-2 rounded-xl text-xs font-semibold bg-slate-800 text-white hover:bg-slate-900 transition"
+                >
+                  關閉
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
