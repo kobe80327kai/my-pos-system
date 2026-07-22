@@ -1,815 +1,569 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
+import { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabase';
 
-// 1. 維修單資料型態
 interface RepairOrder {
   id: string;
   customerName: string;
   phone: string;
-  brand?: string;
+  brand: string;
   model: string;
-  color: string;
-  serialNumber: string;
-  deposit: number;
+  color?: string;
+  serialNumber?: string;
   problem: string;
   quotePrice: number;
   repairFee: number;
+  deposit: number;
   inspectionFee: number;
-  remark?: string;
+  status: string;
   password?: string;
-  status: '已收件' | '已取件';
-  createdAt: string;
+  created_at?: string;
 }
 
-// 2. 零件品項資料型態
 interface PartStock {
   id: string;
   name: string;
-  brand: string;
   category: string;
   applicableModel: string;
-  stock: number;
+  stockQuantity: number;
+  safetyStock: number;
   actualCost: number;
-  storeCost: number;
-  price: number;
-  note?: string;
+  sellingPrice: number;
+  vendorId?: string;
 }
 
-// 3. 進貨紀錄資料型態
-interface PurchaseRecord {
-  id: string;
-  date: string;
-  vendor: string;
-  note: string;
-  itemCount: number;
-}
-
-// 4. 維修廠商資料型態
 interface RepairVendor {
   id: string;
   name: string;
-  contactPerson: string;
-  mobile: string;
-  phone: string;
-  address: string;
-  note?: string;
-}
-
-interface StockInItem {
-  part: PartStock;
-  quantity: number;
-  cost: number;
+  contactPerson?: string;
+  mobile?: string;
 }
 
 export default function RepairsPage() {
-  const [activeTab, setActiveTab] = useState<
-    '維修單' | '零件庫存' | '進貨紀錄' | '維修零件建檔' | '維修廠商'
-  >('維修單');
+  const [activeTab, setActiveTab] = useState<'orders' | 'parts' | 'vendors'>('orders');
+  const [orders, setOrders] = useState<RepairOrder[]>([]);
+  const [parts, setParts] = useState<PartStock[]>([]);
+  const [vendors, setVendors] = useState<RepairVendor[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
 
-  // 控制 Modals
-  const [isAddOrderModalOpen, setIsAddOrderModalOpen] = useState(false);
-  const [isStockInModalOpen, setIsStockInModalOpen] = useState(false);
   const [isAddPartModalOpen, setIsAddPartModalOpen] = useState(false);
   const [isAddVendorModalOpen, setIsAddVendorModalOpen] = useState(false);
-  const [showPasswordInput, setShowPasswordInput] = useState(false);
-
+  const [isAddOrderModalOpen, setIsAddOrderModalOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<RepairOrder | null>(null);
-
-  // 零件入庫
-  const [stockInSearch, setStockInSearch] = useState('');
-  const [selectedVendor, setSelectedVendor] = useState('');
-  const [stockInNote, setStockInNote] = useState('');
-  const [stockInCart, setStockInCart] = useState<StockInItem[]>([]);
-
-  // 表單 States
-  const [newVendorForm, setNewVendorForm] = useState({
-    id: '',
-    name: '',
-    contactPerson: '',
-    mobile: '',
-    phone: '',
-    address: '',
-    note: '',
-  });
+  const [selectedPart, setSelectedPart] = useState<PartStock | null>(null); // 新增：檢視零件詳情用
 
   const [newPartForm, setNewPartForm] = useState({
-    name: '',
     id: '',
-    brand: '',
+    name: '',
     category: '',
     applicableModel: '',
     actualCost: 0,
-    note: '',
+    stockQuantity: 0,
+  });
+
+  const [newVendorForm, setNewVendorForm] = useState({
+    name: '',
+    contactPerson: '',
+    mobile: '',
   });
 
   const [newOrderForm, setNewOrderForm] = useState({
     customerName: '',
+    phone: '',
     brand: '',
     model: '',
     color: '',
     serialNumber: '',
     problem: '',
     quotePrice: 0,
-    repairFee: 0,
     deposit: 0,
-    inspectionFee: 0,
-    remark: '',
     password: '',
   });
 
-  // 資料列表 States
-  const [orders, setOrders] = useState<RepairOrder[]>([]);
-  const [parts, setParts] = useState<PartStock[]>([]);
-  const [vendors, setVendors] = useState<RepairVendor[]>([]);
-  const [purchaseRecords, setPurchaseRecords] = useState<PurchaseRecord[]>([]);
-
-  // 載入資料
   useEffect(() => {
-    fetchAllData();
+    fetchOrders();
+    fetchParts();
+    fetchVendors();
   }, []);
 
-  const fetchAllData = async () => {
-    try {
-      const { data: ordersData, error: orderErr } = await supabase.from('repairs').select('*');
-      if (ordersData) {
-        // 映射資料欄位
-        const mappedOrders = ordersData.map((item: any) => ({
-          id: item.id || `RO${Math.floor(Math.random() * 10000)}`,
-          customerName: item.customer_name || item.customerName || '未知名稱',
-          phone: item.phone || '-',
-          brand: item.brand || '',
-          model: item.model || '',
-          color: item.color || '',
-          serialNumber: item.serial_number || item.serialNumber || '',
-          deposit: item.deposit || 0,
-          problem: item.problem || '',
-          quotePrice: item.quote_price || item.quotePrice || 0,
-          repairFee: item.repair_fee || item.repairFee || 0,
-          inspectionFee: item.inspection_fee || item.inspectionFee || 0,
-          remark: item.remark || '',
-          password: item.password || '',
-          status: item.status || '已收件',
-          createdAt: item.created_at || item.createdAt || new Date().toISOString().split('T')[0],
-        }));
-        setOrders(mappedOrders);
-      }
-
-      const { data: partsData } = await supabase.from('parts').select('*');
-      if (partsData) setParts(partsData);
-
-      const { data: vendorsData } = await supabase.from('vendors').select('*');
-      if (vendorsData) setVendors(vendorsData);
-
-      const { data: purchaseData } = await supabase.from('purchase_records').select('*');
-      if (purchaseData) setPurchaseRecords(purchaseData);
-    } catch (err) {
-      console.error('抓取資料失敗:', err);
+  const fetchOrders = async () => {
+    const { data, error } = await supabase.from('repair_orders').select('*').order('created_at', { ascending: false });
+    if (!error && data) {
+      const formattedOrders = data.map((item: any) => ({
+        ...item,
+        customerName: item.customerName || item.customer_name || item.customername || '',
+        serialNumber: item.serialNumber || item.serial_number || item.serialnumber || '',
+        quotePrice: item.quotePrice ?? item.quote_price ?? item.quoteprice ?? 0,
+        repairFee: item.repairFee ?? item.repair_fee ?? item.repairfee ?? 0,
+        inspectionFee: item.inspectionFee ?? item.inspection_fee ?? item.inspectionfee ?? 0,
+      }));
+      setOrders(formattedOrders);
     }
   };
 
-  // ---- 刪除維修單 ----
+  const fetchParts = async () => {
+    const { data, error } = await supabase.from('part_stocks').select('*');
+    if (!error && data) {
+      const formattedParts = data.map((item: any) => ({
+        ...item,
+        applicableModel: item.applicableModel || item.applicable_model || item.applicablemodel || '',
+        stockQuantity: item.stockQuantity ?? item.stock_quantity ?? item.stockquantity ?? 0,
+        safetyStock: item.safetyStock ?? item.safety_stock ?? item.safetystock ?? 0,
+        actualCost: item.actualCost ?? item.actual_cost ?? item.actualcost ?? 0,
+        sellingPrice: item.sellingPrice ?? item.selling_price ?? item.sellingprice ?? 0,
+      }));
+      setParts(formattedParts);
+    }
+  };
+
+  const fetchVendors = async () => {
+    const { data, error } = await supabase.from('repair_vendors').select('*');
+    if (!error && data) {
+      const formattedVendors = data.map((item: any) => ({
+        ...item,
+        contactPerson: item.contactPerson || item.contact_person || item.contactperson || '',
+      }));
+      setVendors(formattedVendors);
+    }
+  };
+
   const handleDeleteOrder = async (id: string) => {
-    if (confirm(`確定要刪除維修單 [${id}] 嗎？`)) {
-      await supabase.from('repairs').delete().eq('id', id);
-      setOrders(orders.filter((o) => o.id !== id));
+    if (!confirm('確定要刪除這筆維修單嗎？')) return;
+    const { error } = await supabase.from('repair_orders').delete().eq('id', id);
+    if (!error) {
+      setOrders(orders.filter(o => o.id !== id));
       setSelectedOrder(null);
+    } else {
+      alert('刪除失敗');
     }
   };
 
-  // ---- 刪除零件 ----
-  const handleDeletePart = async (partId: string, partName: string) => {
-    if (confirm(`確定要刪除零件項目 [${partName}] 嗎？`)) {
-      await supabase.from('parts').delete().eq('id', partId);
-      setParts(parts.filter((p) => p.id !== partId));
+  // 新增：刪除零件功能
+  const handleDeletePart = async (id: string) => {
+    if (!confirm('確定要刪除這個零件品項嗎？')) return;
+    const { error } = await supabase.from('part_stocks').delete().eq('id', id);
+    if (!error) {
+      setParts(parts.filter(p => p.id !== id));
+      setSelectedPart(null);
+    } else {
+      alert('刪除零件失敗');
     }
   };
 
-  // ---- 刪除廠商 ----
-  const handleDeleteVendor = async (vendorId: string, vendorName: string) => {
-    if (confirm(`確定要刪除廠商 [${vendorName}] 嗎？`)) {
-      await supabase.from('vendors').delete().eq('id', vendorId);
-      setVendors(vendors.filter((v) => v.id !== vendorId));
+  const handleCreatePart = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const partId = newPartForm.id.trim() || `PART-${Date.now()}`;
+    const payload = {
+      id: partId,
+      name: newPartForm.name,
+      category: newPartForm.category,
+      applicable_model: newPartForm.applicableModel,
+      applicableModel: newPartForm.applicableModel,
+      stock_quantity: newPartForm.stockQuantity,
+      stockQuantity: newPartForm.stockQuantity,
+      safety_stock: 2,
+      safetyStock: 2,
+      actual_cost: newPartForm.actualCost,
+      actualCost: newPartForm.actualCost,
+      selling_price: 0,
+      sellingPrice: 0,
+    };
+    
+    const { error } = await supabase.from('part_stocks').insert([payload]);
+    if (!error) {
+      fetchParts();
+      setIsAddPartModalOpen(false);
+      setNewPartForm({ id: '', name: '', category: '', applicableModel: '', actualCost: 0, stockQuantity: 0 });
+    } else {
+      alert(`新增零件失敗: ${error.message}`);
     }
   };
 
-  // ---- 新增維修單 (修復並支援資料寫入) ----
+  const handleCreateVendor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const payload = {
+      name: newVendorForm.name,
+      contact_person: newVendorForm.contactPerson,
+      contactPerson: newVendorForm.contactPerson,
+      mobile: newVendorForm.mobile,
+    };
+    const { error } = await supabase.from('repair_vendors').insert([payload]);
+    if (!error) {
+      fetchVendors();
+      setIsAddVendorModalOpen(false);
+      setNewVendorForm({ name: '', contactPerson: '', mobile: '' });
+    } else {
+      alert(`新增廠商失敗: ${error.message}`);
+    }
+  };
+
   const handleCreateOrder = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newOrderForm.customerName.trim()) {
-      alert('請填寫客戶名稱或電話！');
-      return;
-    }
-    if (!newOrderForm.model.trim()) {
-      alert('請填寫機型！');
-      return;
-    }
-    if (!newOrderForm.problem.trim()) {
-      alert('請填寫問題描述！');
-      return;
-    }
-
-    const today = new Date();
-    const dateStr = `${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getDate().toString().padStart(2, '0')}`;
-    const newId = `RO${today.getFullYear().toString().slice(-2)}${(today.getMonth() + 1).toString().padStart(2, '0')}${today.getDate().toString().padStart(2, '0')}${Math.floor(100 + Math.random() * 900)}`;
-
-    const newOrder: RepairOrder = {
-      id: newId,
+    const orderId = `R-${Date.now().toString().slice(-6)}`;
+    
+    const payload = {
+      id: orderId,
       customerName: newOrderForm.customerName,
-      phone: '-',
+      customer_name: newOrderForm.customerName,
+      customername: newOrderForm.customerName,
+      phone: newOrderForm.phone,
       brand: newOrderForm.brand,
       model: newOrderForm.model,
       color: newOrderForm.color,
       serialNumber: newOrderForm.serialNumber,
-      problem: newOrderForm.problem,
-      quotePrice: Number(newOrderForm.quotePrice) || 0,
-      repairFee: Number(newOrderForm.repairFee) || 0,
-      deposit: Number(newOrderForm.deposit) || 0,
-      inspectionFee: Number(newOrderForm.inspectionFee) || 0,
-      remark: newOrderForm.remark,
-      password: newOrderForm.password,
-      status: '已收件',
-      createdAt: dateStr,
-    };
-
-    // 寫入 Supabase (兼顧駝峰與蛇形雙欄位命名防錯)
-    const payload = {
-      id: newId,
-      customer_name: newOrderForm.customerName,
-      brand: newOrderForm.brand,
-      model: newOrderForm.model,
-      color: newOrderForm.color,
       serial_number: newOrderForm.serialNumber,
+      serialnumber: newOrderForm.serialNumber,
       problem: newOrderForm.problem,
-      quote_price: Number(newOrderForm.quotePrice) || 0,
-      repair_fee: Number(newOrderForm.repairFee) || 0,
-      deposit: Number(newOrderForm.deposit) || 0,
-      inspection_fee: Number(newOrderForm.inspectionFee) || 0,
-      remark: newOrderForm.remark,
+      quotePrice: newOrderForm.quotePrice,
+      quote_price: newOrderForm.quotePrice,
+      quoteprice: newOrderForm.quotePrice,
+      repairFee: 0,
+      repair_fee: 0,
+      repairfee: 0,
+      deposit: newOrderForm.deposit,
+      inspectionFee: 0,
+      inspection_fee: 0,
+      inspectionfee: 0,
+      status: '檢測中',
       password: newOrderForm.password,
-      status: '已收件',
     };
 
-    const { error } = await supabase.from('repairs').insert([payload]);
-
+    const { error } = await supabase.from('repair_orders').insert([payload]);
+    
     if (error) {
-      console.warn('Supabase寫入警告（將直接更新本地端）：', error.message);
+      alert(`新增失敗原因: ${error.message} (代碼: ${error.code})`);
+      return;
     }
 
-    setOrders([newOrder, ...orders]);
+    fetchOrders();
     setIsAddOrderModalOpen(false);
-    setShowPasswordInput(false);
-
-    // 重置表單
     setNewOrderForm({
       customerName: '',
+      phone: '',
       brand: '',
       model: '',
       color: '',
       serialNumber: '',
       problem: '',
       quotePrice: 0,
-      repairFee: 0,
       deposit: 0,
-      inspectionFee: 0,
-      remark: '',
       password: '',
     });
   };
 
-  // ---- 新增零件品項 ----
-  const handleCreatePart = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newPartForm.name) {
-      alert('請填寫品名！');
-      return;
-    }
-    const autoId = newPartForm.id.trim() || `PRT${(parts.length + 1).toString().padStart(5, '0')}`;
-    const newPart: PartStock = {
-      id: autoId,
-      name: newPartForm.name,
-      brand: newPartForm.brand || '—',
-      category: newPartForm.category || '未分類',
-      applicableModel: newPartForm.applicableModel || '—',
-      stock: 0,
-      actualCost: Number(newPartForm.actualCost) || 0,
-      storeCost: Number(newPartForm.actualCost) || 0,
-      price: 0,
-      note: newPartForm.note,
-    };
-
-    await supabase.from('parts').insert([newPart]);
-    setParts([...parts, newPart]);
-    setIsAddPartModalOpen(false);
-    setNewPartForm({ name: '', id: '', brand: '', category: '', applicableModel: '', actualCost: 0, note: '' });
-  };
-
-  // ---- 新增維修廠商 ----
-  const handleCreateVendor = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newVendorForm.name.trim()) {
-      alert('請填寫廠商名稱！');
-      return;
-    }
-    const autoId = newVendorForm.id.trim() || `VEN${(vendors.length + 1).toString().padStart(3, '0')}`;
-    const newVendor: RepairVendor = {
-      id: autoId,
-      name: newVendorForm.name,
-      contactPerson: newVendorForm.contactPerson || '—',
-      mobile: newVendorForm.mobile || '—',
-      phone: newVendorForm.phone || '—',
-      address: newVendorForm.address || '—',
-      note: newVendorForm.note || '—',
-    };
-
-    await supabase.from('vendors').insert([newVendor]);
-    setVendors([...vendors, newVendor]);
-    setIsAddVendorModalOpen(false);
-    setNewVendorForm({ id: '', name: '', contactPerson: '', mobile: '', phone: '', address: '', note: '' });
-  };
-
-  // 零件入庫勾選
-  const toggleSelectPart = (part: PartStock) => {
-    const exists = stockInCart.find((item) => item.part.id === part.id);
-    if (exists) {
-      setStockInCart(stockInCart.filter((item) => item.part.id !== part.id));
-    } else {
-      setStockInCart([...stockInCart, { part, quantity: 1, cost: part.actualCost }]);
-    }
-  };
-
-  // 完成零件入庫
-  const handleCompleteStockIn = async () => {
-    if (stockInCart.length === 0) {
-      alert('請至少選擇一項入庫零件！');
-      return;
-    }
-
-    for (const item of stockInCart) {
-      const newStock = item.part.stock + item.quantity;
-      await supabase.from('parts').update({ stock: newStock, actualCost: item.cost }).eq('id', item.part.id);
-    }
-
-    const today = new Date();
-    const dateStr = `${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getDate().toString().padStart(2, '0')}`;
-    const newRecordId = `RP${today.getFullYear().toString().slice(-2)}${(today.getMonth() + 1).toString().padStart(2, '0')}${today.getDate().toString().padStart(2, '0')}${Math.floor(100 + Math.random() * 900)}`;
-
-    const newRecord: PurchaseRecord = {
-      id: newRecordId,
-      date: dateStr,
-      vendor: selectedVendor || '—',
-      note: stockInNote || '—',
-      itemCount: stockInCart.length,
-    };
-
-    await supabase.from('purchase_records').insert([newRecord]);
-    alert('入庫成功！');
-    setIsStockInModalOpen(false);
-    setStockInCart([]);
-    setStockInNote('');
-    setSelectedVendor('');
-    fetchAllData();
-  };
-
-  const tabs = ['維修單', '零件庫存', '進貨紀錄', '維修零件建檔', '維修廠商'] as const;
-  const filteredParts = parts.filter(
-    (p) => p.name.includes(stockInSearch) || p.id.toLowerCase().includes(stockInSearch.toLowerCase())
-  );
-
   return (
-    <div className="p-8 bg-slate-50 min-h-screen">
-      {/* 頂部按鈕區 */}
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-slate-800">維修管理</h1>
-        {activeTab === '維修單' && (
-          <button onClick={() => setIsAddOrderModalOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-semibold transition shadow-sm">+ 新增維修單</button>
-        )}
-        {activeTab === '零件庫存' && (
-          <button onClick={() => setIsStockInModalOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-semibold transition shadow-sm">+ 入庫</button>
-        )}
-        {activeTab === '維修零件建檔' && (
-          <button onClick={() => setIsAddPartModalOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-semibold transition shadow-sm">+ 新增零件品項</button>
-        )}
-        {activeTab === '維修廠商' && (
-          <button onClick={() => setIsAddVendorModalOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-semibold transition shadow-sm">+ 新增維修廠商</button>
-        )}
-      </div>
-
-      {/* Tabs 分頁列 */}
-      <div className="border-b border-slate-200 mb-6 flex gap-8">
-        {tabs.map((tab) => (
+    <div className="p-8 max-w-7xl mx-auto space-y-6">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">維修與庫存管理</h1>
+          <p className="text-xs text-slate-400 mt-1">管理客戶維修單、零件庫存及配合廠商</p>
+        </div>
+        <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-semibold">
           <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`pb-3 text-sm font-semibold transition-all relative ${
-              activeTab === tab ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-800'
-            }`}
+            onClick={() => setActiveTab('orders')}
+            className={`px-4 py-2 rounded-lg transition ${activeTab === 'orders' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
           >
-            {tab}
+            維修單列表 ({orders.length})
           </button>
-        ))}
+          <button
+            onClick={() => setActiveTab('parts')}
+            className={`px-4 py-2 rounded-lg transition ${activeTab === 'parts' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+          >
+            零件庫存 ({parts.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('vendors')}
+            className={`px-4 py-2 rounded-lg transition ${activeTab === 'vendors' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+          >
+            廠商管理 ({vendors.length})
+          </button>
+        </div>
       </div>
 
-      {/* TAB: 維修單 */}
-      {activeTab === '維修單' && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-          <table className="w-full text-left text-xs text-slate-600">
-            <thead className="bg-slate-50/80 border-b border-slate-100 text-slate-400 font-medium">
-              <tr>
-                <th className="p-4">單號</th>
-                <th className="p-4">客戶</th>
-                <th className="p-4">機型</th>
-                <th className="p-4">問題</th>
-                <th className="p-4">報價</th>
-                <th className="p-4">狀態</th>
-                <th className="p-4">收件日</th>
-                <th className="p-4 text-right pr-6">操作</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {orders.map((order) => (
-                <tr key={order.id} className="hover:bg-slate-50/80 transition group">
-                  <td onClick={() => setSelectedOrder(order)} className="p-4 font-mono font-medium text-slate-800 cursor-pointer">{order.id}</td>
-                  <td onClick={() => setSelectedOrder(order)} className="p-4 font-bold text-slate-800 cursor-pointer">{order.customerName}</td>
-                  <td onClick={() => setSelectedOrder(order)} className="p-4 text-slate-700 cursor-pointer">{order.model}</td>
-                  <td onClick={() => setSelectedOrder(order)} className="p-4 text-slate-600 cursor-pointer">{order.problem}</td>
-                  <td onClick={() => setSelectedOrder(order)} className="p-4 font-bold font-mono text-slate-800 cursor-pointer">${order.quotePrice}</td>
-                  <td onClick={() => setSelectedOrder(order)} className="p-4 cursor-pointer">
-                    <span className={`px-3 py-1 rounded-full text-[11px] font-medium flex items-center gap-1 w-max ${order.status === '已收件' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'}`}>
-                      • {order.status}
-                    </span>
-                  </td>
-                  <td onClick={() => setSelectedOrder(order)} className="p-4 font-mono text-slate-400 cursor-pointer">{order.createdAt}</td>
-                  <td className="p-4 text-right pr-6 flex items-center justify-end gap-3">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteOrder(order.id);
-                      }}
-                      className="text-slate-300 hover:text-rose-600 transition text-sm"
-                      title="刪除維修單"
-                    >
-                      🗑️
-                    </button>
-                    <span onClick={() => setSelectedOrder(order)} className="text-slate-300 font-mono group-hover:text-slate-500 cursor-pointer">&gt;</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <div className="flex justify-between items-center gap-4">
+        <input
+          type="text"
+          placeholder={activeTab === 'parts' ? "搜尋零件名稱或編號..." : "搜尋客戶、電話或維修單號..."}
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="w-full max-w-sm border border-slate-200 rounded-xl px-4 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition"
+        />
+        {activeTab === 'orders' && (
+          <button
+            onClick={() => setIsAddOrderModalOpen(true)}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold transition shadow-sm"
+          >
+            + 新增維修單
+          </button>
+        )}
+        {activeTab === 'parts' && (
+          <button
+            onClick={() => setIsAddPartModalOpen(true)}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold transition shadow-sm"
+          >
+            + 新增零件
+          </button>
+        )}
+        {activeTab === 'vendors' && (
+          <button
+            onClick={() => setIsAddVendorModalOpen(true)}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold transition shadow-sm"
+          >
+            + 新增廠商
+          </button>
+        )}
+      </div>
 
-      {/* TAB: 進貨紀錄 */}
-      {activeTab === '進貨紀錄' && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-          <table className="w-full text-left text-xs text-slate-600">
-            <thead className="bg-slate-50/80 border-b border-slate-100 text-slate-400 font-medium">
-              <tr>
-                <th className="p-4 w-1/5">單號</th>
-                <th className="p-4 w-1/5">日期</th>
-                <th className="p-4 w-1/5">廠商</th>
-                <th className="p-4 w-1/4">備註</th>
-                <th className="p-4 text-center">品項數</th>
-                <th className="p-4 text-right pr-6">操作</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {purchaseRecords.map((record) => (
-                <tr key={record.id} className="hover:bg-slate-50/80 transition group">
-                  <td className="p-4 font-mono font-bold text-blue-600">{record.id}</td>
-                  <td className="p-4 font-mono text-slate-600">{record.date}</td>
-                  <td className="p-4 text-slate-700 font-medium">{record.vendor}</td>
-                  <td className="p-4 text-slate-400">{record.note}</td>
-                  <td className="p-4 text-center font-mono font-bold text-slate-700">{record.itemCount}</td>
-                  <td className="p-4 text-right pr-6">
-                    <button onClick={async () => {
-                      await supabase.from('purchase_records').delete().eq('id', record.id);
-                      setPurchaseRecords(purchaseRecords.filter(r => r.id !== record.id));
-                    }} className="text-slate-300 hover:text-rose-500 transition text-sm">🗑️</button>
-                  </td>
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        {activeTab === 'orders' && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-50/75 border-b border-slate-100 text-slate-400 font-medium">
+                  <th className="p-4">維修單號</th>
+                  <th className="p-4">客戶 / 電話</th>
+                  <th className="p-4">品牌機型</th>
+                  <th className="p-4">問題描述</th>
+                  <th className="p-4">狀態</th>
+                  <th className="p-4 text-right">報價金額</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {orders.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-slate-400">目前沒有維修單資料</td>
+                  </tr>
+                ) : (
+                  orders
+                    .filter(order => 
+                      order.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                      order.phone?.includes(searchTerm) ||
+                      order.id?.toLowerCase().includes(searchTerm.toLowerCase())
+                    )
+                    .map((order) => (
+                      <tr
+                        key={order.id}
+                        onClick={() => setSelectedOrder(order)}
+                        className="hover:bg-slate-50/80 cursor-pointer transition"
+                      >
+                        <td className="p-4 font-mono font-bold text-blue-600">{order.id}</td>
+                        <td className="p-4">
+                          <div className="font-semibold text-slate-800">{order.customerName}</div>
+                          <div className="text-slate-400 font-mono text-[11px]">{order.phone}</div>
+                        </td>
+                        <td className="p-4 font-medium">{order.brand} {order.model}</td>
+                        <td className="p-4 max-w-xs truncate text-slate-500">{order.problem}</td>
+                        <td className="p-4">
+                          <span className="px-2.5 py-1 bg-blue-50 text-blue-600 rounded-lg font-semibold text-[11px]">
+                            {order.status}
+                          </span>
+                        </td>
+                        <td className="p-4 text-right font-mono font-semibold">${order.quotePrice}</td>
+                      </tr>
+                    ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
 
-      {/* TAB: 零件庫存 */}
-      {activeTab === '零件庫存' && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-          <table className="w-full text-left text-xs text-slate-600">
-            <thead className="bg-slate-50 border-b border-slate-100 text-slate-400 font-semibold">
-              <tr>
-                <th className="p-4">零件編號</th>
-                <th className="p-4">名稱</th>
-                <th className="p-4">品牌</th>
-                <th className="p-4">適用機型</th>
-                <th className="p-4">庫存</th>
-                <th className="p-4">實際成本</th>
-                <th className="p-4">門市成本</th>
-                <th className="p-4">售價</th>
-                <th className="p-4 text-right pr-6">操作</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {parts.map((part) => (
-                <tr key={part.id} className="hover:bg-slate-50/80 transition group">
-                  <td className="p-4 font-mono text-slate-500">{part.id}</td>
-                  <td className="p-4 font-medium text-slate-800">{part.name}</td>
-                  <td className="p-4 text-slate-600">{part.brand}</td>
-                  <td className="p-4 text-slate-400">{part.applicableModel}</td>
-                  <td className="p-4 font-bold text-rose-600">{part.stock}</td>
-                  <td className="p-4 font-mono text-amber-600">${part.actualCost}</td>
-                  <td className="p-4 font-mono text-slate-700">${part.storeCost}</td>
-                  <td className="p-4 font-mono text-blue-600">${part.price}</td>
-                  <td className="p-4 text-right pr-6">
-                    <button onClick={() => handleDeletePart(part.id, part.name)} className="text-slate-300 hover:text-rose-600 transition text-sm font-medium">🗑️ 刪除</button>
-                  </td>
+        {activeTab === 'parts' && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-50/75 border-b border-slate-100 text-slate-400 font-medium">
+                  <th className="p-4">零件編號</th>
+                  <th className="p-4">零件名稱</th>
+                  <th className="p-4">分類</th>
+                  <th className="p-4">適用機型</th>
+                  <th className="p-4 text-center">庫存數量</th>
+                  <th className="p-4 text-right">成本價</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {parts.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-slate-400">目前沒有零件庫存資料</td>
+                  </tr>
+                ) : (
+                  parts
+                    .filter(part =>
+                      part.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                      part.id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                      part.applicableModel?.toLowerCase().includes(searchTerm.toLowerCase())
+                    )
+                    .map((part) => (
+                      <tr
+                        key={part.id}
+                        onClick={() => setSelectedPart(part)}
+                        className="hover:bg-slate-50/80 cursor-pointer transition"
+                      >
+                        <td className="p-4 font-mono font-bold text-slate-600">{part.id}</td>
+                        <td className="p-4 font-semibold text-slate-800">{part.name}</td>
+                        <td className="p-4 text-slate-500">{part.category || '—'}</td>
+                        <td className="p-4 text-slate-500">{part.applicableModel || '—'}</td>
+                        <td className="p-4 text-center font-mono font-bold">{part.stockQuantity}</td>
+                        <td className="p-4 text-right font-mono">${part.actualCost}</td>
+                      </tr>
+                    ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
 
-      {/* TAB: 維修零件建檔 */}
-      {activeTab === '維修零件建檔' && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-          <table className="w-full text-left text-xs text-slate-600">
-            <thead className="bg-slate-50 border-b border-slate-100 text-slate-400 font-semibold">
-              <tr>
-                <th className="p-4">編號</th>
-                <th className="p-4">品名</th>
-                <th className="p-4">品牌</th>
-                <th className="p-4">分類</th>
-                <th className="p-4">適用機型</th>
-                <th className="p-4">預設成本</th>
-                <th className="p-4">備註</th>
-                <th className="p-4 text-right pr-6">操作</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {parts.map((part) => (
-                <tr key={part.id} className="hover:bg-slate-50/80 transition group">
-                  <td className="p-4 font-mono text-slate-500">{part.id}</td>
-                  <td className="p-4 font-medium text-slate-800">{part.name}</td>
-                  <td className="p-4 text-slate-600">{part.brand}</td>
-                  <td className="p-4 text-slate-600">{part.category}</td>
-                  <td className="p-4 text-slate-400">{part.applicableModel}</td>
-                  <td className="p-4 font-mono font-medium text-amber-600">${part.actualCost}</td>
-                  <td className="p-4 text-slate-400">{part.note || '—'}</td>
-                  <td className="p-4 text-right pr-6">
-                    <button onClick={() => handleDeletePart(part.id, part.name)} className="text-slate-300 hover:text-rose-600 transition text-sm font-medium">🗑️ 刪除</button>
-                  </td>
+        {activeTab === 'vendors' && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-50/75 border-b border-slate-100 text-slate-400 font-medium">
+                  <th className="p-4">廠商名稱</th>
+                  <th className="p-4">聯絡人</th>
+                  <th className="p-4">行動電話</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {vendors.map((vendor) => (
+                  <tr key={vendor.id} className="hover:bg-slate-50/80 transition">
+                    <td className="p-4 font-semibold text-slate-800">{vendor.name}</td>
+                    <td className="p-4 text-slate-600">{vendor.contactPerson || '—'}</td>
+                    <td className="p-4 font-mono text-slate-600">{vendor.mobile || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
-      {/* TAB: 維修廠商 */}
-      {activeTab === '維修廠商' && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-          <table className="w-full text-left text-xs text-slate-600">
-            <thead className="bg-slate-50/80 border-b border-slate-100 text-slate-400 font-medium">
-              <tr>
-                <th className="p-4">廠商名稱</th>
-                <th className="p-4">聯絡人</th>
-                <th className="p-4">手機</th>
-                <th className="p-4">電話</th>
-                <th className="p-4">地址</th>
-                <th className="p-4">備註</th>
-                <th className="p-4 text-right pr-6">操作</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {vendors.map((vendor) => (
-                <tr key={vendor.id} className="hover:bg-slate-50/80 transition group">
-                  <td className="p-4 font-bold text-slate-800 flex items-center gap-2">
-                    {vendor.name}
-                    <span className="text-[10px] font-mono text-slate-400 font-normal">({vendor.id})</span>
-                  </td>
-                  <td className="p-4 text-slate-700">{vendor.contactPerson}</td>
-                  <td className="p-4 font-mono text-slate-600">{vendor.mobile}</td>
-                  <td className="p-4 font-mono text-slate-600">{vendor.phone}</td>
-                  <td className="p-4 text-slate-600">{vendor.address}</td>
-                  <td className="p-4 text-slate-400 max-w-xs truncate">{vendor.note}</td>
-                  <td className="p-4 text-right pr-6">
-                    <button onClick={() => handleDeleteVendor(vendor.id, vendor.name)} className="text-slate-300 hover:text-rose-600 transition text-sm font-medium">🗑️ 刪除</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* ➕ 新增維修單 Modal (完全復刻附圖 UI 樣式) */}
+      {/* 新增維修單 Modal */}
       {isAddOrderModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-100">
-            {/* Modal Header */}
-            <div className="px-6 py-4 flex justify-between items-center border-b border-slate-50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100">
+            <div className="px-6 py-4 flex justify-between items-center border-b border-slate-100">
               <h2 className="text-base font-bold text-slate-800">新增維修單</h2>
-              <button
-                onClick={() => setIsAddOrderModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 text-lg transition"
-              >
-                ✕
-              </button>
+              <button onClick={() => setIsAddOrderModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-lg transition">✕</button>
             </div>
-
-            <form onSubmit={handleCreateOrder} className="p-6 space-y-4 max-h-[85vh] overflow-y-auto">
-              {/* 一般維修 Tab */}
-              <div className="w-full bg-blue-50/50 border border-blue-500 rounded-xl py-2.5 text-center text-xs font-semibold text-blue-600 shadow-sm">
-                一般維修
-              </div>
-
-              {/* 客戶 */}
-              <div className="space-y-2">
-                <label className="text-xs text-slate-700 font-medium block">
-                  客戶 <span className="text-rose-500">*</span>
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-2.5 text-slate-400 text-xs">🔍</span>
+            <form onSubmit={handleCreateOrder} className="p-6 space-y-4 max-h-[75vh] overflow-y-auto text-xs">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-slate-700 font-medium mb-1.5 block">客戶姓名 <span className="text-rose-500">*</span></label>
                   <input
                     type="text"
                     required
                     value={newOrderForm.customerName}
                     onChange={(e) => setNewOrderForm({ ...newOrderForm, customerName: e.target.value })}
-                    placeholder="搜尋客戶姓名或電話..."
-                    className="w-full border border-slate-200 rounded-xl pl-8 pr-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:border-blue-500 transition"
                   />
                 </div>
-                <button
-                  type="button"
-                  className="bg-blue-50 hover:bg-blue-100 text-blue-600 text-xs font-semibold px-3 py-1.5 rounded-lg transition flex items-center gap-1"
-                >
-                  <span>👤+</span> 快速建立新客戶
-                </button>
-              </div>
-
-              {/* 品牌 & 機型 */}
-              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs text-slate-700 font-medium mb-1.5 block">品牌</label>
+                  <label className="text-slate-700 font-medium mb-1.5 block">聯絡電話 <span className="text-rose-500">*</span></label>
                   <input
                     type="text"
+                    required
+                    value={newOrderForm.phone}
+                    onChange={(e) => setNewOrderForm({ ...newOrderForm, phone: e.target.value })}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:border-blue-500 font-mono transition"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-slate-700 font-medium mb-1.5 block">品牌 <span className="text-rose-500">*</span></label>
+                  <input
+                    type="text"
+                    required
                     value={newOrderForm.brand}
                     onChange={(e) => setNewOrderForm({ ...newOrderForm, brand: e.target.value })}
-                    placeholder="Apple / Samsung..."
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition"
+                    placeholder="Apple / Samsung"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:border-blue-500 transition"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-700 font-medium mb-1.5 block">
-                    機型 <span className="text-rose-500">*</span>
-                  </label>
+                  <label className="text-slate-700 font-medium mb-1.5 block">型號 <span className="text-rose-500">*</span></label>
                   <input
                     type="text"
                     required
                     value={newOrderForm.model}
                     onChange={(e) => setNewOrderForm({ ...newOrderForm, model: e.target.value })}
-                    placeholder="iPhone 15"
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition"
+                    placeholder="iPhone 15 Pro"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:border-blue-500 transition"
                   />
                 </div>
               </div>
-
-              {/* 顏色 & 序號/IMEI */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs text-slate-700 font-medium mb-1.5 block">顏色</label>
+                  <label className="text-slate-700 font-medium mb-1.5 block">顏色</label>
                   <input
                     type="text"
                     value={newOrderForm.color}
                     onChange={(e) => setNewOrderForm({ ...newOrderForm, color: e.target.value })}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:border-blue-500 transition"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-700 font-medium mb-1.5 block">序號 / IMEI</label>
+                  <label className="text-slate-700 font-medium mb-1.5 block">序號 / IMEI</label>
                   <input
                     type="text"
                     value={newOrderForm.serialNumber}
                     onChange={(e) => setNewOrderForm({ ...newOrderForm, serialNumber: e.target.value })}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:border-blue-500 font-mono transition"
                   />
                 </div>
               </div>
-
-              {/* 問題描述 */}
               <div>
-                <div className="flex justify-between items-center mb-1.5">
-                  <label className="text-xs text-slate-700 font-medium block">
-                    問題描述 <span className="text-rose-500">*</span>
-                  </label>
-                  <button type="button" className="text-blue-600 text-[11px] font-medium hover:underline flex items-center gap-1">
-                    📈 查手機王報價
-                  </button>
-                </div>
+                <label className="text-slate-700 font-medium mb-1.5 block">問題描述 <span className="text-rose-500">*</span></label>
                 <textarea
-                  rows={3}
                   required
+                  rows={3}
                   value={newOrderForm.problem}
                   onChange={(e) => setNewOrderForm({ ...newOrderForm, problem: e.target.value })}
-                  placeholder="描述客戶反映的問題..."
-                  className="w-full border border-slate-200 rounded-xl p-3 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition resize-y"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:border-blue-500 transition"
                 />
               </div>
-
-              {/* 費用區塊 */}
-              <div className="grid grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs text-slate-600 font-medium mb-1 block">報價 ( 元 )</label>
+                  <label className="text-slate-700 font-medium mb-1.5 block">預估報價</label>
                   <input
                     type="number"
                     value={newOrderForm.quotePrice || ''}
                     onChange={(e) => setNewOrderForm({ ...newOrderForm, quotePrice: Number(e.target.value) })}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500 transition"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:border-blue-500 font-mono transition"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-600 font-medium mb-1 block">維修費 ( 元 )</label>
-                  <input
-                    type="number"
-                    value={newOrderForm.repairFee || ''}
-                    onChange={(e) => setNewOrderForm({ ...newOrderForm, repairFee: Number(e.target.value) })}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500 transition"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-slate-600 font-medium mb-1 block">訂金 ( 元 )</label>
+                  <label className="text-slate-700 font-medium mb-1.5 block">已收訂金</label>
                   <input
                     type="number"
                     value={newOrderForm.deposit || ''}
                     onChange={(e) => setNewOrderForm({ ...newOrderForm, deposit: Number(e.target.value) })}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500 transition"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-slate-600 font-medium mb-1 block">檢測費 ( 元 )</label>
-                  <input
-                    type="number"
-                    value={newOrderForm.inspectionFee}
-                    onChange={(e) => setNewOrderForm({ ...newOrderForm, inspectionFee: Number(e.target.value) })}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500 transition"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:border-blue-500 font-mono transition"
                   />
                 </div>
               </div>
-
-              {/* 備註 */}
               <div>
-                <label className="text-xs text-slate-700 font-medium mb-1.5 block">備註</label>
+                <label className="text-slate-700 font-medium mb-1.5 block">解鎖密碼</label>
                 <input
                   type="text"
-                  value={newOrderForm.remark}
-                  onChange={(e) => setNewOrderForm({ ...newOrderForm, remark: e.target.value })}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition"
+                  value={newOrderForm.password}
+                  onChange={(e) => setNewOrderForm({ ...newOrderForm, password: e.target.value })}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:border-blue-500 font-mono transition"
                 />
               </div>
-
-              {/* 客戶手機解鎖密碼卡片 */}
-              <div className="border border-slate-200 rounded-xl p-4 flex justify-between items-center bg-slate-50/50">
-                <div>
-                  <div className="text-xs font-bold text-slate-800 mb-0.5">客戶手機解鎖密碼</div>
-                  <div className="text-[11px] text-slate-400">供維修人員解鎖手機使用，客戶可親自輸入</div>
-                  {showPasswordInput && (
-                    <input
-                      type="text"
-                      value={newOrderForm.password}
-                      onChange={(e) => setNewOrderForm({ ...newOrderForm, password: e.target.value })}
-                      placeholder="輸入解鎖密碼"
-                      className="mt-2 border border-slate-200 rounded-lg px-2.5 py-1 text-xs bg-white text-slate-700 focus:outline-none focus:border-blue-500 font-mono"
-                    />
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowPasswordInput(!showPasswordInput)}
-                  className="border border-slate-200 hover:bg-slate-100 bg-white text-slate-700 px-3 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1 shadow-sm"
-                >
-                  🔒 {showPasswordInput ? '隱藏密碼' : '記錄密碼'}
-                </button>
-              </div>
-
-              {/* 表單提交按鈕 */}
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-50">
                 <button
                   type="button"
                   onClick={() => setIsAddOrderModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:bg-slate-100 transition"
+                  className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl font-semibold hover:bg-slate-50 transition"
                 >
                   取消
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2 rounded-xl text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition shadow-sm"
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition shadow-sm"
                 >
-                  建立維修單
+                  確認建立
                 </button>
               </div>
             </form>
@@ -817,204 +571,298 @@ export default function RepairsPage() {
         </div>
       )}
 
-      {/* 📦 零件入庫 Modal */}
-      {isStockInModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-100">
-            <div className="px-8 py-5 border-b border-slate-100 flex justify-between items-center">
-              <h2 className="text-base font-bold text-slate-800">零件入庫</h2>
-              <button onClick={() => setIsStockInModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-lg transition">✕</button>
-            </div>
-            <div className="p-8 space-y-4 max-h-[80vh] overflow-y-auto">
-              <input type="text" value={stockInSearch} onChange={(e) => setStockInSearch(e.target.value)} placeholder="搜尋零件..." className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
-              <div className="border border-slate-100 rounded-2xl overflow-hidden max-h-48 overflow-y-auto">
-                <table className="w-full text-left text-xs text-slate-600">
-                  <thead className="bg-slate-50 sticky top-0">
-                    <tr>
-                      <th className="p-3">選擇</th>
-                      <th className="p-3">名稱</th>
-                      <th className="p-3">目前庫存</th>
-                      <th className="p-3">成本</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredParts.map((part) => {
-                      const isSelected = stockInCart.some((item) => item.part.id === part.id);
-                      return (
-                        <tr key={part.id} onClick={() => toggleSelectPart(part)} className={`cursor-pointer transition ${isSelected ? 'bg-blue-50/60' : 'hover:bg-slate-50'}`}>
-                          <td className="p-3"><input type="checkbox" checked={isSelected} onChange={() => {}} /></td>
-                          <td className="p-3 font-medium text-slate-800">{part.name}</td>
-                          <td className="p-3 font-bold text-slate-600">{part.stock}</td>
-                          <td className="p-3 font-mono text-amber-600">${part.actualCost}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              <select value={selectedVendor} onChange={(e) => setSelectedVendor(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition bg-white">
-                <option value="">選擇廠商...</option>
-                {vendors.map((v) => (<option key={v.id} value={v.name}>{v.name}</option>))}
-              </select>
-              <textarea value={stockInNote} onChange={(e) => setStockInNote(e.target.value)} placeholder="進貨備註..." className="w-full border border-slate-200 rounded-xl p-3 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                <button onClick={() => setIsStockInModalOpen(false)} className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:bg-slate-100 transition">取消</button>
-                <button onClick={handleCompleteStockIn} className="px-5 py-2 rounded-xl text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition shadow-sm">確認入庫</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ➕ 新增零件品項 Modal */}
+      {/* 新增零件 Modal */}
       {isAddPartModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100">
-            <div className="px-8 py-5 border-b border-slate-100 flex justify-between items-center">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100">
+            <div className="px-6 py-4 flex justify-between items-center border-b border-slate-100">
               <h2 className="text-base font-bold text-slate-800">新增零件品項</h2>
               <button onClick={() => setIsAddPartModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-lg transition">✕</button>
             </div>
-            <form onSubmit={handleCreatePart} className="p-8 space-y-4 max-h-[80vh] overflow-y-auto">
+            <form onSubmit={handleCreatePart} className="p-6 space-y-4 text-xs">
               <div>
-                <label className="text-xs text-slate-700 font-medium mb-1.5 block">零件名稱 <span className="text-rose-500">*</span></label>
-                <input type="text" required value={newPartForm.name} onChange={(e) => setNewPartForm({ ...newPartForm, name: e.target.value })} placeholder="例如：iPhone 13 螢幕總成" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
+                <label className="text-slate-700 font-medium mb-1.5 block">零件編號 (留空自動產生)</label>
+                <input
+                  type="text"
+                  value={newPartForm.id}
+                  onChange={(e) => setNewPartForm({ ...newPartForm, id: e.target.value })}
+                  placeholder="例如：P15P-SCR"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:border-blue-500 font-mono transition"
+                />
+              </div>
+              <div>
+                <label className="text-slate-700 font-medium mb-1.5 block">零件名稱 <span className="text-rose-500">*</span></label>
+                <input
+                  type="text"
+                  required
+                  value={newPartForm.name}
+                  onChange={(e) => setNewPartForm({ ...newPartForm, name: e.target.value })}
+                  placeholder="iPhone 15 Pro OLED 螢幕"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:border-blue-500 transition"
+                />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs text-slate-700 font-medium mb-1.5 block">零件編號</label>
-                  <input type="text" value={newPartForm.id} onChange={(e) => setNewPartForm({ ...newPartForm, id: e.target.value })} placeholder="PRT00001" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition font-mono" />
+                  <label className="text-slate-700 font-medium mb-1.5 block">分類</label>
+                  <input
+                    type="text"
+                    value={newPartForm.category}
+                    onChange={(e) => setNewPartForm({ ...newPartForm, category: e.target.value })}
+                    placeholder="螢幕總成"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:border-blue-500 transition"
+                  />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-700 font-medium mb-1.5 block">品牌</label>
-                  <input type="text" value={newPartForm.brand} onChange={(e) => setNewPartForm({ ...newPartForm, brand: e.target.value })} placeholder="Apple" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
+                  <label className="text-slate-700 font-medium mb-1.5 block">適用機型</label>
+                  <input
+                    type="text"
+                    value={newPartForm.applicableModel}
+                    onChange={(e) => setNewPartForm({ ...newPartForm, applicableModel: e.target.value })}
+                    placeholder="iPhone 15 Pro"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:border-blue-500 transition"
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs text-slate-700 font-medium mb-1.5 block">分類</label>
-                  <input type="text" value={newPartForm.category} onChange={(e) => setNewPartForm({ ...newPartForm, category: e.target.value })} placeholder="螢幕 / 電池..." className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
+                  <label className="text-slate-700 font-medium mb-1.5 block">初始庫存數量</label>
+                  <input
+                    type="number"
+                    value={newPartForm.stockQuantity || ''}
+                    onChange={(e) => setNewPartForm({ ...newPartForm, stockQuantity: Number(e.target.value) })}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:border-blue-500 font-mono transition"
+                  />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-700 font-medium mb-1.5 block">預設成本</label>
-                  <input type="number" value={newPartForm.actualCost || ''} onChange={(e) => setNewPartForm({ ...newPartForm, actualCost: Number(e.target.value) })} placeholder="0" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-700 focus:outline-none focus:border-blue-500 transition" />
+                  <label className="text-slate-700 font-medium mb-1.5 block">預設成本</label>
+                  <input
+                    type="number"
+                    value={newPartForm.actualCost || ''}
+                    onChange={(e) => setNewPartForm({ ...newPartForm, actualCost: Number(e.target.value) })}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:border-blue-500 font-mono transition"
+                  />
                 </div>
               </div>
-              <div>
-                <label className="text-xs text-slate-700 font-medium mb-1.5 block">適用機型</label>
-                <input type="text" value={newPartForm.applicableModel} onChange={(e) => setNewPartForm({ ...newPartForm, applicableModel: e.target.value })} placeholder="iPhone 13..." className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
-              </div>
-              <div>
-                <label className="text-xs text-slate-700 font-medium mb-1.5 block">備註</label>
-                <textarea rows={2} value={newPartForm.note} onChange={(e) => setNewPartForm({ ...newPartForm, note: e.target.value })} className="w-full border border-slate-200 rounded-xl p-3 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
-              </div>
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                <button type="button" onClick={() => setIsAddPartModalOpen(false)} className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:bg-slate-100 transition">取消</button>
-                <button type="submit" className="px-5 py-2 rounded-xl text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition shadow-sm">確認建檔</button>
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-50">
+                <button
+                  type="button"
+                  onClick={() => setIsAddPartModalOpen(false)}
+                  className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl font-semibold hover:bg-slate-50 transition"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition shadow-sm"
+                >
+                  確認新增
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* ➕ 新增維修廠商 Modal */}
+      {/* 新增廠商 Modal */}
       {isAddVendorModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100">
-            <div className="px-8 py-5 border-b border-slate-100 flex justify-between items-center">
-              <h2 className="text-base font-bold text-slate-800">新增維修廠商</h2>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100">
+            <div className="px-6 py-4 flex justify-between items-center border-b border-slate-100">
+              <h2 className="text-base font-bold text-slate-800">新增廠商</h2>
               <button onClick={() => setIsAddVendorModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-lg transition">✕</button>
             </div>
-            <form onSubmit={handleCreateVendor} className="p-8 space-y-4 max-h-[80vh] overflow-y-auto">
+            <form onSubmit={handleCreateVendor} className="p-6 space-y-4 text-xs">
               <div>
-                <label className="text-xs text-slate-700 font-medium mb-1.5 block">廠商名稱 <span className="text-rose-500">*</span></label>
-                <input type="text" required value={newVendorForm.name} onChange={(e) => setNewVendorForm({ ...newVendorForm, name: e.target.value })} placeholder="廠商名稱..." className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
+                <label className="text-slate-700 font-medium mb-1.5 block">廠商名稱 <span className="text-rose-500">*</span></label>
+                <input
+                  type="text"
+                  required
+                  value={newVendorForm.name}
+                  onChange={(e) => setNewVendorForm({ ...newVendorForm, name: e.target.value })}
+                  placeholder="華訊零件批發"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:border-blue-500 transition"
+                />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs text-slate-700 font-medium mb-1.5 block">廠商編號</label>
-                  <input type="text" value={newVendorForm.id} onChange={(e) => setNewVendorForm({ ...newVendorForm, id: e.target.value })} placeholder="VEN001" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition font-mono" />
+                  <label className="text-slate-700 font-medium mb-1.5 block">聯絡人</label>
+                  <input
+                    type="text"
+                    value={newVendorForm.contactPerson}
+                    onChange={(e) => setNewVendorForm({ ...newVendorForm, contactPerson: e.target.value })}
+                    placeholder="陳先生"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:border-blue-500 transition"
+                  />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-700 font-medium mb-1.5 block">聯絡人</label>
-                  <input type="text" value={newVendorForm.contactPerson} onChange={(e) => setNewVendorForm({ ...newVendorForm, contactPerson: e.target.value })} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
+                  <label className="text-slate-700 font-medium mb-1.5 block">行動電話</label>
+                  <input
+                    type="text"
+                    value={newVendorForm.mobile}
+                    onChange={(e) => setNewVendorForm({ ...newVendorForm, mobile: e.target.value })}
+                    placeholder="0911..."
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:border-blue-500 font-mono transition"
+                  />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs text-slate-700 font-medium mb-1.5 block">手機</label>
-                  <input type="text" value={newVendorForm.mobile} onChange={(e) => setNewVendorForm({ ...newVendorForm, mobile: e.target.value })} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition font-mono" />
-                </div>
-                <div>
-                  <label className="text-xs text-slate-700 font-medium mb-1.5 block">電話</label>
-                  <input type="text" value={newVendorForm.phone} onChange={(e) => setNewVendorForm({ ...newVendorForm, phone: e.target.value })} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition font-mono" />
-                </div>
-              </div>
-              <div>
-                <label className="text-xs text-slate-700 font-medium mb-1.5 block">地址</label>
-                <input type="text" value={newVendorForm.address} onChange={(e) => setNewVendorForm({ ...newVendorForm, address: e.target.value })} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
-              </div>
-              <div>
-                <label className="text-xs text-slate-700 font-medium mb-1.5 block">備註</label>
-                <textarea rows={2} value={newVendorForm.note} onChange={(e) => setNewVendorForm({ ...newVendorForm, note: e.target.value })} className="w-full border border-slate-200 rounded-xl p-3 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition" />
-              </div>
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                <button type="button" onClick={() => setIsAddVendorModalOpen(false)} className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:bg-slate-100 transition">取消</button>
-                <button type="submit" className="px-5 py-2 rounded-xl text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition shadow-sm">確認新增</button>
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-50">
+                <button
+                  type="button"
+                  onClick={() => setIsAddVendorModalOpen(false)}
+                  className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl font-semibold hover:bg-slate-50 transition"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition shadow-sm"
+                >
+                  確認新增
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* 📄 維修單詳情 Modal */}
+      {/* 維修單詳情 Modal */}
       {selectedOrder && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100">
-            <div className="px-8 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-100 max-h-[90vh] flex flex-col">
+            <div className="px-6 py-4 flex justify-between items-center border-b border-slate-100 bg-slate-50/50">
               <div>
-                <h2 className="text-base font-bold text-slate-800">維修單詳情</h2>
-                <span className="text-xs font-mono text-blue-600 font-bold">{selectedOrder.id}</span>
+                <span className="font-mono font-bold text-blue-600 text-sm">{selectedOrder.id}</span>
+                <h2 className="text-xs text-slate-400 mt-0.5">建立時間：{new Date(selectedOrder.created_at || Date.now()).toLocaleString()}</h2>
               </div>
               <button onClick={() => setSelectedOrder(null)} className="text-slate-400 hover:text-slate-600 text-lg transition">✕</button>
             </div>
-            <div className="p-8 space-y-4 text-xs text-slate-700 max-h-[80vh] overflow-y-auto">
-              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl">
-                <div><span className="text-slate-400 block mb-0.5">客戶姓名</span> <span className="font-bold text-slate-800">{selectedOrder.customerName}</span></div>
-                <div><span className="text-slate-400 block mb-0.5">狀態</span> <span className="font-semibold text-blue-600">{selectedOrder.status}</span></div>
-                <div><span className="text-slate-400 block mb-0.5">品牌/機型</span> {selectedOrder.brand || ''} {selectedOrder.model}</div>
-                <div><span className="text-slate-400 block mb-0.5">序號 (S/N)</span> <span className="font-mono">{selectedOrder.serialNumber}</span></div>
-                {selectedOrder.color && <div><span className="text-slate-400 block mb-0.5">顏色</span> {selectedOrder.color}</div>}
-                {selectedOrder.password && <div><span className="text-slate-400 block mb-0.5">解鎖密碼</span> <span className="font-mono bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">{selectedOrder.password}</span></div>}
+            
+            <div className="p-6 space-y-4 overflow-y-auto flex-1 text-xs">
+              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-3 rounded-xl">
+                <div>
+                  <span className="text-slate-400 block mb-0.5">客戶姓名</span>
+                  <span className="font-semibold text-slate-800 text-sm">{selectedOrder.customerName}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block mb-0.5">聯絡電話</span>
+                  <span className="font-mono font-semibold text-slate-800 text-sm">{selectedOrder.phone}</span>
+                </div>
               </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <span className="text-slate-400 block mb-0.5">品牌 / 型號</span>
+                  <span className="font-semibold text-slate-800">{selectedOrder.brand} {selectedOrder.model}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block mb-0.5">顏色 / 序號</span>
+                  <span className="text-slate-700">{selectedOrder.color || '—'} / <span className="font-mono">{selectedOrder.serialNumber || '—'}</span></span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block mb-0.5">目前狀態</span>
+                  <span className="font-bold text-blue-600">{selectedOrder.status}</span>
+                </div>
+              </div>
+
               <div>
                 <span className="text-slate-400 block mb-1">問題描述</span>
-                <p className="p-3 bg-slate-50 rounded-xl font-medium">{selectedOrder.problem}</p>
+                <div className="bg-slate-50 p-3 rounded-xl text-slate-700 whitespace-pre-wrap">{selectedOrder.problem}</div>
               </div>
-              <div className="grid grid-cols-3 gap-2 border-t border-b border-slate-100 py-3 font-mono">
-                <div><span className="text-slate-400 text-[11px] block">預估報價</span> ${selectedOrder.quotePrice}</div>
-                <div><span className="text-slate-400 text-[11px] block">已付訂金</span> ${selectedOrder.deposit}</div>
-                <div><span className="text-slate-400 text-[11px] block">檢測費</span> ${selectedOrder.inspectionFee}</div>
-              </div>
-              {selectedOrder.remark && (
+
+              <div className="grid grid-cols-4 gap-3 bg-slate-50 p-3 rounded-xl font-mono">
                 <div>
-                  <span className="text-slate-400 block mb-1">備註</span>
-                  <p className="text-slate-600">{selectedOrder.remark}</p>
+                  <span className="text-slate-400 block text-[10px]">預估報價</span>
+                  <span className="text-slate-800 font-bold">${selectedOrder.quotePrice}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px]">維修費</span>
+                  <span className="text-slate-800 font-bold">${selectedOrder.repairFee}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px]">已收訂金</span>
+                  <span className="text-emerald-600 font-bold">${selectedOrder.deposit}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px]">檢測費</span>
+                  <span className="text-slate-800 font-bold">${selectedOrder.inspectionFee}</span>
+                </div>
+              </div>
+
+              {selectedOrder.password && (
+                <div>
+                  <span className="text-slate-400 block mb-1">解鎖密碼</span>
+                  <div className="bg-amber-50 text-amber-800 px-3 py-2 rounded-xl font-mono">{selectedOrder.password}</div>
                 </div>
               )}
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                <button
-                  onClick={() => handleDeleteOrder(selectedOrder.id)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-rose-600 hover:bg-rose-50 transition"
-                >
-                  刪除此單
-                </button>
-                <button
-                  onClick={() => setSelectedOrder(null)}
-                  className="px-5 py-2 rounded-xl text-xs font-semibold bg-slate-800 text-white hover:bg-slate-900 transition"
-                >
-                  關閉
-                </button>
+            </div>
+
+            <div className="px-6 py-3 border-t border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <button
+                onClick={() => handleDeleteOrder(selectedOrder.id)}
+                className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-semibold transition"
+              >
+                刪除此單
+              </button>
+              <button
+                onClick={() => setSelectedOrder(null)}
+                className="px-4 py-2 bg-slate-800 text-white rounded-xl font-semibold hover:bg-slate-700 transition"
+              >
+                關閉視窗
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 新增：零件詳細資料與刪除 Modal */}
+      {selectedPart && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-100 flex flex-col">
+            <div className="px-6 py-4 flex justify-between items-center border-b border-slate-100 bg-slate-50/50">
+              <span className="font-mono font-bold text-slate-700 text-sm">{selectedPart.id}</span>
+              <button onClick={() => setSelectedPart(null)} className="text-slate-400 hover:text-slate-600 text-lg transition">✕</button>
+            </div>
+            
+            <div className="p-6 space-y-4 text-xs">
+              <div>
+                <span className="text-slate-400 block mb-0.5">零件名稱</span>
+                <span className="font-semibold text-slate-800 text-sm">{selectedPart.name}</span>
               </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <span className="text-slate-400 block mb-0.5">分類</span>
+                  <span className="text-slate-700">{selectedPart.category || '—'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block mb-0.5">適用機型</span>
+                  <span className="text-slate-700">{selectedPart.applicableModel || '—'}</span>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-3 rounded-xl font-mono">
+                <div>
+                  <span className="text-slate-400 block text-[10px]">庫存數量</span>
+                  <span className="text-slate-800 font-bold text-sm">{selectedPart.stockQuantity}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px]">成本價</span>
+                  <span className="text-slate-800 font-bold text-sm">${selectedPart.actualCost}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="px-6 py-3 border-t border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <button
+                onClick={() => handleDeletePart(selectedPart.id)}
+                className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-semibold transition"
+              >
+                刪除此零件
+              </button>
+              <button
+                onClick={() => setSelectedPart(null)}
+                className="px-4 py-2 bg-slate-800 text-white rounded-xl font-semibold hover:bg-slate-700 transition"
+              >
+                關閉視窗
+              </button>
             </div>
           </div>
         </div>
