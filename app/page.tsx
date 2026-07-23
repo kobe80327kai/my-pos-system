@@ -110,17 +110,40 @@ export default function Home() {
     }
   };
 
-  const [customers, setCustomers] = useState<Customer[]>([
-    { id: 'c1', name: '林活揚', phone: '0956-096936' },
-    { id: 'c2', name: '王小明', phone: '0912-345678' },
-    { id: 'c3', name: '張美玲', phone: '0988-888888' },
-  ]);
+  // 改為從 Supabase 資料庫抓取客戶清單
+  const [customers, setCustomers] = useState<Customer[]>([]);
+
+  const fetchCustomers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('customers')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('讀取客戶失敗:', error);
+        return;
+      }
+
+      if (data) {
+        const formattedCustomers: Customer[] = data.map((item: any) => ({
+          id: item.id.toString(),
+          name: item.name || '',
+          phone: item.phone || '',
+        }));
+        setCustomers(formattedCustomers);
+      }
+    } catch (err) {
+      console.error('連線 Supabase 客戶資料失敗:', err);
+    }
+  };
 
   const [salesRecords, setSalesRecords] = useState<SaleRecord[]>([]);
 
   useEffect(() => {
     fetchSalesRecords();
     fetchPlans();
+    fetchCustomers(); // 初始化時讀取客戶資料
   }, []);
 
   const fetchSalesRecords = async () => {
@@ -159,7 +182,6 @@ export default function Home() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
-  // 修改處：將預設帶入的客戶改為空字串
   const [customerSearch, setCustomerSearch] = useState('');
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
 
@@ -195,7 +217,6 @@ export default function Home() {
     '匯款': 0,
   };
 
-  // 取得真實今天的日期 (YYYY-MM-DD)
   const getTodayStr = () => {
     const d = new Date();
     const year = d.getFullYear();
@@ -209,7 +230,6 @@ export default function Home() {
   const [filterCustType, setFilterCustType] = useState('全部');
   const [datePreset, setDatePreset] = useState<'today' | 'week' | 'month' | 'all'>('today');
 
-  // 動態綁定當前真實日期
   const [startDate, setStartDate] = useState(getTodayStr());
   const [endDate, setEndDate] = useState(getTodayStr());
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
@@ -220,7 +240,6 @@ export default function Home() {
   const [perfStaff, setPerfStaff] = useState('全部人員');
   const [perfStartDate, setPerfStartDate] = useState(getTodayStr());
   const [perfEndDate, setPerfEndDate] = useState(getTodayStr());
-  const [perfSubTab, setPerfSubTab] = useState<'comparison' | 'detail' | 'chart'>('comparison');
 
   const handleDatePreset = (preset: 'today' | 'week' | 'month' | 'all') => {
     setDatePreset(preset);
@@ -251,29 +270,6 @@ export default function Home() {
     }
   };
 
-  const handlePerfPreset = (type: 'today' | 'month' | 'all') => {
-    const today = new Date();
-    const formatDateStr = (d: Date) => {
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    };
-
-    if (type === 'today') {
-      const s = formatDateStr(today);
-      setPerfStartDate(s);
-      setPerfEndDate(s);
-    } else if (type === 'month') {
-      const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-      setPerfStartDate(formatDateStr(firstDayOfMonth));
-      setPerfEndDate(formatDateStr(today));
-    } else if (type === 'all') {
-      setPerfStartDate('2025-01-01');
-      setPerfEndDate('2030-12-31');
-    }
-  };
-
   const filteredSalesRecords = salesRecords.filter(record => {
     const keyword = recordSearchKeyword.toLowerCase();
     const matchKeyword = !keyword ||
@@ -297,24 +293,6 @@ export default function Home() {
 
   const perfTotalAmount = filteredPerfRecords.reduce((sum, r) => sum + r.totalAmount, 0);
   const perfTotalProfit = filteredPerfRecords.reduce((sum, r) => sum + r.profit, 0);
-
-  const categoryStats: Record<string, { count: number; amount: number }> = {
-    combination: { count: 0, amount: 0 },
-    phone: { count: 0, amount: 0 },
-    usedPhone: { count: 0, amount: 0 },
-    accessory: { count: 0, amount: 0 },
-    repair: { count: 0, amount: 0 },
-  };
-
-  filteredPerfRecords.forEach(r => {
-    r.items.forEach(it => {
-      const cat = it.category || 'accessory';
-      if (categoryStats[cat]) {
-        categoryStats[cat].count += it.quantity;
-        categoryStats[cat].amount += it.price * it.quantity;
-      }
-    });
-  });
 
   const handleDeleteRecord = async (id: string) => {
     if (confirm('確定要刪除這筆銷售紀錄嗎？')) {
@@ -425,23 +403,34 @@ export default function Home() {
     setIsCustomModalOpen(false);
   };
 
-  const handleCreateCustomer = () => {
+  // 修改快速建立會員，同步寫入 Supabase 的 customers 表格
+  const handleCreateCustomer = async () => {
     if (!newCustName.trim() || !newCustPhone.trim()) {
       alert('請填寫姓名與電話！');
       return;
     }
 
-    const newCustomerObj: Customer = {
-      id: `c-${Date.now()}`,
+    const newDbCustomer = {
       name: newCustName.trim(),
       phone: newCustPhone.trim(),
     };
 
-    setCustomers([newCustomerObj, ...customers]);
-    setCustomerSearch(`${newCustomerObj.name} ( ${newCustomerObj.phone} )`);
+    const { data, error } = await supabase
+      .from('customers')
+      .insert([newDbCustomer])
+      .select();
+
+    if (error) {
+      alert('建立客戶失敗：' + error.message);
+      return;
+    }
+
+    await fetchCustomers(); // 重新抓取最新客戶清單
+    setCustomerSearch(`${newCustName.trim()} ( ${newCustPhone.trim()} )`);
     setNewCustName('');
     setNewCustPhone('');
     setIsQuickCustomerModalOpen(false);
+    alert('會員建立成功！');
   };
 
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -640,7 +629,7 @@ export default function Home() {
                     <input
                       type="text"
                       value={customerSearch}
-                      onFocus={() => setIsCustomerDropdownOpen(true)}
+                      onFocus={() => { fetchCustomers(); setIsCustomerDropdownOpen(true); }}
                       onChange={(e) => {
                         setCustomerSearch(e.target.value);
                         setIsCustomerDropdownOpen(true);
