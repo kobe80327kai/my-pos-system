@@ -198,7 +198,7 @@ export default function Home() {
 
   return (
     <div className="flex h-screen bg-slate-100 text-slate-800 font-sans overflow-hidden">
-      {/* 唯一的標準左側導覽列 */}
+      {/* 唯一正常的左側導覽列 */}
       <div className="w-64 bg-[#0B132B] text-slate-300 flex flex-col justify-between select-none shrink-0 overflow-y-auto">
         <div>
           <div className="p-6 flex items-center gap-3 border-b border-slate-800/60">
@@ -308,7 +308,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* 其他未特別客製頁面的通用佔位顯示 */}
+        {/* 其他通用頁面 */}
         {['purchase', 'inventory', 'usedPhones', 'customers', 'suppliers', 'plans'].includes(currentMenu) && (
           <div className="p-8 space-y-6">
             <h1 className="text-xl font-bold text-slate-800">
