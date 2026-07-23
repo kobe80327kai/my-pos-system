@@ -16,7 +16,7 @@ interface CartItem {
   name: string;
   price: number;
   cost: number;
-  rebate: number; // 專門用來記錄方案佣金
+  rebate: number;
   quantity: number;
   type: 'product' | 'plan' | 'custom' | 'repair';
 }
@@ -68,23 +68,10 @@ export default function ControlPage() {
       const saved = localStorage.getItem('pos_sales_records');
       if (saved) return JSON.parse(saved);
     }
-    return [
-      {
-        id: 'sr-1',
-        orderNo: 'SD260723119',
-        date: '2026-07-23',
-        customerName: '個人貴賓',
-        customerType: '個人貴賓',
-        salesperson: '管理員',
-        items: [{ name: '滿版保貼', price: 200, cost: 50, quantity: 1 }],
-        totalAmount: 200,
-        profit: 150,
-        paymentInfo: '現金'
-      }
-    ];
+    return [];
   });
 
-  // 客戶預設清空，不帶入任何預設客戶名單
+  // 客戶名單預設為空，並自動讀取與同步 localStorage 中的客戶管理資料
   const [customers, setCustomers] = useState<Customer[]>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('pos_customers');
@@ -115,17 +102,27 @@ export default function ControlPage() {
     localStorage.setItem('pos_sales_records', JSON.stringify(salesRecords));
   }, [salesRecords]);
 
-  // 結帳區狀態
+  // 定期或監聽同步客戶資料
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const savedCust = localStorage.getItem('pos_customers');
+      if (savedCust) {
+        setCustomers(JSON.parse(savedCust));
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
   const [cart, setCart] = useState<CartItem[]>([]);
   const [productSearch, setProductSearch] = useState('');
-  const [customerSearch, setCustomerSearch] = useState(''); // 預設空白
+  const [customerSearch, setCustomerSearch] = useState('');
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
   const [planSearch, setPlanSearch] = useState('');
   const [payments, setPayments] = useState<PaymentEntry[]>([
     { id: 'pay-1', method: '現金', installments: '3' }
   ]);
 
-  // 銷售紀錄篩選與檢視狀態
   const [recordSearch, setRecordSearch] = useState('');
   const [filterSalesperson, setFilterSalesperson] = useState('全部門市人員');
   const [filterCustomerType, setFilterCustomerType] = useState('全部客戶類型');
@@ -133,7 +130,6 @@ export default function ControlPage() {
   const [dateEnd, setDateEnd] = useState(getTodayStr());
   const [dateFilterMode, setDateFilterMode] = useState<'today' | 'week' | 'month' | 'all' | 'custom'>('today');
   const [expandedRecordIds, setExpandedRecordIds] = useState<string[]>([]);
-  
   const [editingRecord, setEditingRecord] = useState<SaleRecord | null>(null);
 
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
@@ -166,7 +162,7 @@ export default function ControlPage() {
         name: `[方案] ${plan.name}`, 
         price: 0, 
         cost: 0,
-        rebate: Number(plan.rebate || 0), // 方案佣金正確帶入
+        rebate: Number(plan.rebate) || 0, // 強制確保佣金數值寫入
         quantity: 1, 
         type: 'plan' 
       }
@@ -232,10 +228,10 @@ export default function ControlPage() {
 
   const totalAmountWithFee = subtotal + totalFeeAmount;
   
-  // 毛利計算：一般商品 (售價-成本)*數量 + 方案佣金
+  // 修正毛利計算：方案直接累加其對應的 rebate 佣金
   const baseProfit = cart.reduce((sum, item) => {
     if (item.type === 'plan') {
-      return sum + (Number(item.price) || 0) + Number(item.rebate || 0);
+      return sum + Number(item.rebate || 0);
     }
     const pPrice = Number(item.price) || 0;
     const pCost = Number(item.cost) || 0;
@@ -272,7 +268,6 @@ export default function ControlPage() {
 
     setSalesRecords([newRecord, ...salesRecords]);
     alert(`結帳成功！單號：${orderNo}`);
-    
     setCart([]);
     setCustomerSearch('');
   };
@@ -324,8 +319,9 @@ export default function ControlPage() {
     !productSearch || p.name.includes(productSearch) || p.id.includes(productSearch)
   );
 
+  // 確保客戶搜尋能夠比對完整清單
   const filteredCustomers = customers.filter(c => 
-    c.name.includes(customerSearch) || c.phone.includes(customerSearch)
+    !customerSearch || c.name.includes(customerSearch) || c.phone.includes(customerSearch)
   );
 
   const filteredPlans = plans.filter(pl =>
@@ -453,7 +449,7 @@ export default function ControlPage() {
                   cart.map((i, index) => {
                     const itemPrice = Number(i.price) || 0;
                     const itemProfit = i.type === 'plan' 
-                      ? itemPrice + Number(i.rebate || 0) 
+                      ? Number(i.rebate || 0) 
                       : (itemPrice - Number(i.cost || 0)) * i.quantity;
 
                     return (
@@ -462,22 +458,31 @@ export default function ControlPage() {
                           <span>{i.name}</span>
                           <button onClick={() => setCart(cart.filter((_, idx) => idx !== index))} className="text-slate-400 hover:text-rose-600 text-sm">×</button>
                         </div>
-                        <div className="flex justify-between items-center text-[10px] text-slate-500">
-                          <span>售價 ($):</span>
-                          <input
-                            type="number"
-                            value={i.price}
-                            onChange={(e) => {
-                              const val = e.target.value === '' ? 0 : Number(e.target.value);
-                              setCart(cart.map((item, idx) => idx === index ? { ...item, price: val } : item));
-                            }}
-                            className="w-20 bg-white border border-slate-200 rounded px-1.5 py-0.5 text-right font-mono"
-                          />
-                        </div>
-                        <div className="flex justify-between items-center text-[10px] text-emerald-600 font-bold">
-                          <span>預估毛利:</span>
-                          <span>{itemProfit >= 0 ? `+$${itemProfit}` : `-$${Math.abs(itemProfit)}`}</span>
-                        </div>
+                        {i.type === 'plan' ? (
+                          <div className="flex justify-between items-center text-[10px] text-emerald-600 font-bold">
+                            <span>方案佣金:</span>
+                            <span>+${i.rebate}</span>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex justify-between items-center text-[10px] text-slate-500">
+                              <span>售價 ($):</span>
+                              <input
+                                type="number"
+                                value={i.price}
+                                onChange={(e) => {
+                                  const val = e.target.value === '' ? 0 : Number(e.target.value);
+                                  setCart(cart.map((item, idx) => idx === index ? { ...item, price: val } : item));
+                                }}
+                                className="w-20 bg-white border border-slate-200 rounded px-1.5 py-0.5 text-right font-mono"
+                              />
+                            </div>
+                            <div className="flex justify-between items-center text-[10px] text-emerald-600 font-bold">
+                              <span>預估毛利:</span>
+                              <span>{itemProfit >= 0 ? `+$${itemProfit}` : `-$${Math.abs(itemProfit)}`}</span>
+                            </div>
+                          </>
+                        )}
                       </div>
                     );
                   })
@@ -590,7 +595,7 @@ export default function ControlPage() {
                 type="text"
                 value={recordSearch}
                 onChange={(e) => setRecordSearch(e.target.value)}
-                placeholder="搜尋單號 / 客戶 / 經手人員 / 商品名稱 / IMEI..."
+                placeholder="搜尋單號 / 客戶 / 經手人員 / 商品名稱..."
                 className="flex-1 min-w-[260px] bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs"
               />
               <select
