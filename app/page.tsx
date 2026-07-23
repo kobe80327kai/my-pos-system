@@ -16,9 +16,8 @@ interface CartItem {
   name: string;
   price: number;
   cost: number;
-  commission: number;
   quantity: number;
-  type: 'product' | 'plan' | 'custom' | 'repair';
+  type: string;
 }
 
 interface SaleRecord {
@@ -27,7 +26,7 @@ interface SaleRecord {
   date: string;
   customerName: string;
   salesperson: string;
-  items: { name: string; price: number; cost: number; quantity: number; category?: string }[];
+  items: { name: string; price: number; cost: number; quantity: number }[];
   totalAmount: number;
   profit: number;
   paymentInfo: string;
@@ -42,17 +41,14 @@ interface RepairOrder {
   deviceModel: string;
   imei: string;
   repairType: '一般維修' | '委外維修';
-  outsourcer: string;
   issueDescription: string;
   quotedPrice: number;
   repairCost: number;
   status: '檢測中' | '等待報價' | '維修中' | '已完修' | '已交機' | '不維修';
-  notes: string;
-  salesperson: string;
 }
 
 export default function Home() {
-  const [currentMenu, setCurrentMenu] = useState<string>('repairManagement');
+  const [currentMenu, setCurrentMenu] = useState<string>('control');
 
   const getTodayStr = () => {
     const d = new Date();
@@ -71,7 +67,7 @@ export default function Home() {
         date: getTodayStr(),
         customerName: '王小明',
         salesperson: '管理員',
-        items: [{ name: '滿版保貼', price: 200, cost: 50, quantity: 1, category: '配件' }],
+        items: [{ name: '滿版保貼', price: 200, cost: 50, quantity: 1 }],
         totalAmount: 200,
         profit: 150,
         paymentInfo: '現金'
@@ -94,13 +90,10 @@ export default function Home() {
         deviceModel: 'iPhone 14 Pro',
         imei: '358899123456789',
         repairType: '一般維修',
-        outsourcer: '',
         issueDescription: '更換原廠電池',
         quotedPrice: 2200,
         repairCost: 1200,
-        status: '已交機',
-        notes: '已完成測試',
-        salesperson: '管理員'
+        status: '已交機'
       }
     ];
   });
@@ -147,7 +140,7 @@ export default function Home() {
       if (existing) {
         return prev.map((i) => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
       }
-      return [...prev, { id: item.id, name: item.name, price: item.price, cost: item.cost, commission: 0, quantity: 1, type: 'product' }];
+      return [...prev, { id: item.id, name: item.name, price: item.price, cost: item.cost, quantity: 1, type: 'product' }];
     });
   };
 
@@ -166,7 +159,7 @@ export default function Home() {
       date: getTodayStr(),
       customerName: '散客',
       salesperson: '管理員',
-      items: cart.map(i => ({ name: i.name, price: i.price, cost: i.cost, quantity: i.quantity, category: i.type })),
+      items: cart.map(i => ({ name: i.name, price: i.price, cost: i.cost, quantity: i.quantity })),
       totalAmount: subtotal,
       profit: totalProfit,
       paymentInfo: '現金'
@@ -192,7 +185,7 @@ export default function Home() {
 
   const filteredRepairOrders = repairOrders.filter(r => {
     const matchDate = r.date >= perfStartDate && r.date <= perfEndDate;
-    const matchStaff = perfStaff === '全部' || r.salesperson === perfStaff;
+    const matchStaff = perfStaff === '全部';
     const isCompleted = r.status === '已完修' || r.status === '已交機';
     return matchDate && matchStaff && isCompleted;
   });
@@ -205,7 +198,7 @@ export default function Home() {
 
   return (
     <div className="flex h-screen bg-slate-100 text-slate-800 font-sans overflow-hidden">
-      {/* 唯一且完整的左側導覽列 */}
+      {/* 唯一的標準左側導覽列 */}
       <div className="w-64 bg-[#0B132B] text-slate-300 flex flex-col justify-between select-none shrink-0 overflow-y-auto">
         <div>
           <div className="p-6 flex items-center gap-3 border-b border-slate-800/60">
@@ -580,13 +573,10 @@ export default function Home() {
                   deviceModel: repairDeviceModel,
                   imei: repairImei || '—',
                   repairType: '一般維修',
-                  outsourcer: '',
                   issueDescription: repairIssue,
                   quotedPrice: parseFloat(repairQuotedPrice) || 0,
                   repairCost: parseFloat(repairCostVal) || 0,
-                  status: '檢測中',
-                  notes: '',
-                  salesperson: '管理員'
+                  status: '檢測中'
                 };
                 setRepairOrders([newRp, ...repairOrders]);
                 setIsNewRepairModalOpen(false);
