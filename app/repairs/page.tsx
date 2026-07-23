@@ -1,1030 +1,875 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
 
-interface Product {
+interface RepairItem {
   id: string;
-  name: string;
-  price: number;
-  cost: number;
-  stock: number;
+  repairNo: string;
+  createdAt: string;
+  customerName: string;
+  phone: string;
+  brand: string;
+  brandModel: string;
+  color: string;
+  serialNumber: string;
+  problem: string;
+  repairFee: number;
+  deposit: number;
+  detectionFee: number;
+  status: string; // '檢測中' | '已收件' | '已取件'
+  repairType: '一般維修' | '委外維修';
+  outsourcer?: string;
+  outsourcerCost?: number;
+  usedParts?: { id: string; name: string; cost: number }[];
+  paymentMethod?: string;
+  profit?: number;
+  note?: string;
+  password?: string;
 }
 
-interface Plan {
+interface StockItem {
   id: string;
   code: string;
   name: string;
-  telecom: '遠傳電信' | '台灣大哥大' | '中華電信' | string;
-  type: '新申辦' | '攜碼' | '續約' | '手機保險' | string;
-  monthlyFee: number;
-  commission: number;
-  contractMonths?: number;
-  prepayment?: number;
+  category: string;
+  model: string;
+  stock: number;
+  cost: number;
 }
 
-interface Customer {
+interface VendorItem {
   id: string;
   name: string;
+  contact: string;
   phone: string;
 }
 
-interface CartItem {
-  id: string;
-  name: string;
-  price: number;
-  cost: number;
-  commission: number;
-  quantity: number;
-  type: 'product' | 'plan' | 'custom' | 'repair';
-}
+const LOCAL_STORAGE_REPAIRS = 'pos_repairs_data_v4';
+const LOCAL_STORAGE_STOCK = 'pos_stock_data_v4';
+const LOCAL_STORAGE_VENDORS = 'pos_vendors_data_v4';
 
-interface PaymentRow {
-  id: string;
-  method: '現金' | '刷卡' | '刷卡分期' | '無卡分期' | '匯款';
-  installments: string;
-}
+export default function RepairsAndStockPage() {
+  const [activeTab, setActiveTab] = useState<'repairs' | 'stock' | 'vendors'>('repairs');
 
-interface SaleRecord {
-  id: string;
-  orderNo: string;
-  date: string;
-  customerName: string;
-  customerType: string;
-  salesperson: string;
-  store: string;
-  items: {
-    name: string;
-    imei: string;
-    cost: number;
-    price: number;
-    quantity: number;
-    category?: 'combination' | 'phone' | 'usedPhone' | 'accessory' | 'repair';
-  }[];
-  totalAmount: number;
-  totalCost: number;
-  profit: number;
-  paymentInfo: string;
-}
-
-export default function Home() {
-  const [currentTab, setCurrentTab] = useState<'pos' | 'salesRecord' | 'performance'>('pos');
-
-  const products: Product[] = [
-    { id: 'p1', name: '滿版保貼', price: 200, cost: 50, stock: 10 },
-    { id: 'p2', name: 'AIR6皮套', price: 200, cost: 70, stock: 8 },
-    { id: 'p3', name: 'iPhone 15 128G', price: 25900, cost: 23000, stock: 3 },
-  ];
-
-  const [plans, setPlans] = useState<Plan[]>([]);
-
-  const fetchPlans = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('plans')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('讀取方案失敗:', error);
-        return;
-      }
-
-      if (data) {
-        const formattedPlans: Plan[] = data.map((item: any) => ({
-          id: item.id.toString(),
-          code: item.code || '',
-          name: item.name || '',
-          telecom: item.telecom || '遠傳電信',
-          type: item.type || '攜碼',
-          monthlyFee: Number(item.monthly_fee || 0),
-          commission: Number(item.actual_commission || item.store_commission || 0),
-          contractMonths: Number(item.contract_months || 24),
-          prepayment: Number(item.prepayment || 0),
-        }));
-        setPlans(formattedPlans);
-      }
-    } catch (err) {
-      console.error('連線 Supabase 方案資料失敗:', err);
+  // 維修單列表
+  const [repairs, setRepairs] = useState<RepairItem[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(LOCAL_STORAGE_REPAIRS);
+      if (saved) { try { return JSON.parse(saved); } catch (e) {} }
     }
-  };
-
-  const [customers, setCustomers] = useState<Customer[]>([]);
-
-  const fetchCustomers = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('customers')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('讀取客戶失敗:', error);
-        return;
+    return [
+      {
+        id: '1',
+        repairNo: 'RO260720001',
+        createdAt: '2026/07/23 下午12:58',
+        customerName: 'JOY秀菁',
+        phone: '0912-345678',
+        brand: 'Apple',
+        brandModel: '15',
+        color: '黑',
+        serialNumber: '-',
+        problem: '00',
+        repairFee: 1200,
+        deposit: 0,
+        detectionFee: 0,
+        status: '已收件',
+        repairType: '一般維修',
+        usedParts: [],
       }
+    ];
+  });
 
-      if (data) {
-        const formattedCustomers: Customer[] = data.map((item: any) => ({
-          id: item.id.toString(),
-          name: item.name || '',
-          phone: item.phone || '',
-        }));
-        setCustomers(formattedCustomers);
-      }
-    } catch (err) {
-      console.error('連線 Supabase 客戶資料失敗:', err);
+  // 零件庫存
+  const [stockList, setStockList] = useState<StockItem[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(LOCAL_STORAGE_STOCK);
+      if (saved) { try { return JSON.parse(saved); } catch (e) {} }
     }
-  };
+    return [
+      { id: '101', code: 'P01', name: '紅米13C電池', category: '電池', model: '紅米13C', stock: 2, cost: 230 },
+      { id: '102', code: 'P02', name: 'I15電池', category: '電池', model: 'iPhone 15', stock: 1, cost: 450 },
+      { id: '103', code: 'P03', name: '紅米NOTE12電池', category: '電池', model: '紅米NOTE12', stock: 3, cost: 260 },
+    ];
+  });
 
-  const [salesRecords, setSalesRecords] = useState<SaleRecord[]>([]);
-
-  useEffect(() => {
-    fetchSalesRecords();
-    fetchPlans();
-    fetchCustomers();
-  }, []);
-
-  const fetchSalesRecords = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('sales_records')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('讀取銷售紀錄失敗:', error);
-        return;
-      }
-
-      if (data) {
-        const formattedRecords: SaleRecord[] = data.map((item: any) => ({
-          id: item.id,
-          orderNo: item.order_no,
-          date: item.date,
-          customerName: item.customer_name,
-          customerType: item.customer_type,
-          salesperson: item.salesperson,
-          store: item.store,
-          items: typeof item.items === 'string' ? JSON.parse(item.items) : item.items,
-          totalAmount: Number(item.total_amount),
-          totalCost: Number(item.total_cost),
-          profit: Number(item.profit),
-          paymentInfo: item.payment_info
-        }));
-        setSalesRecords(formattedRecords);
-      }
-    } catch (err) {
-      console.error('連線 Supabase 發生錯誤:', err);
+  // 廠商管理
+  const [vendors, setVendors] = useState<VendorItem[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(LOCAL_STORAGE_VENDORS);
+      if (saved) { try { return JSON.parse(saved); } catch (e) {} }
     }
-  };
+    return [
+      { id: '1', name: 'THEONE 零件供應商', contact: '王經理', phone: '0912-345678' }
+    ];
+  });
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [customerSearch, setCustomerSearch] = useState('');
-  const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
+  const [selectedRepair, setSelectedRepair] = useState<RepairItem | null>(null);
 
-  const [isQuickCustomerModalOpen, setIsQuickCustomerModalOpen] = useState(false);
-  const [newCustName, setNewCustName] = useState('');
-  const [newCustPhone, setNewCustPhone] = useState('');
+  // 結帳彈窗狀態
+  const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
+  const [checkoutRepair, setCheckoutRepair] = useState<RepairItem | null>(null);
+  const [checkoutRepairFee, setCheckoutRepairFee] = useState<number>(0);
+  const [checkoutPaymentMethod, setCheckoutPaymentMethod] = useState<string>('現金');
+  const [selectedParts, setSelectedParts] = useState<{ id: string; name: string; cost: number }[]>([]);
 
-  const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
-  const [planSearch, setPlanSearch] = useState('');
-  const [activePlanType, setActivePlanType] = useState<string>('全部');
-  const [activeTelecom, setActiveTelecom] = useState<string>('所有電信');
+  // 新增維修單彈窗狀態
+  const [isAddRepairModalOpen, setIsAddRepairModalOpen] = useState(false);
+  const [newRepairType, setNewRepairType] = useState<'一般維修' | '委外維修'>('一般維修');
+  const [newCustomerName, setNewCustomerName] = useState('');
+  const [newPhone, setNewPhone] = useState('');
+  const [newBrand, setNewBrand] = useState('');
+  const [newBrandModel, setNewBrandModel] = useState('');
+  const [newColor, setNewColor] = useState('');
+  const [newSerialNumber, setNewSerialNumber] = useState('');
+  const [newProblem, setNewProblem] = useState('');
+  const [newRepairFee, setNewRepairFee] = useState<number>(0);
+  const [newDeposit, setNewDeposit] = useState<number>(0);
+  const [newDetectionFee, setNewDetectionFee] = useState<number>(0);
+  const [newOutsourcer, setNewOutsourcer] = useState('');
+  const [newOutsourcerCost, setNewOutsourcerCost] = useState<number>(0);
+  const [newNote, setNewNote] = useState('');
+  const [newPassword, setNewPassword] = useState('');
 
-  const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
-  const [customName, setCustomName] = useState('');
-  const [customPrice, setCustomPrice] = useState('');
-  const [customCategory, setCustomCategory] = useState<'accessory' | 'repair'>('accessory');
-  const [customCost, setCustomCost] = useState('');
+  // 新增零件與廠商 Modal
+  const [isStockModalOpen, setIsStockModalOpen] = useState(false);
+  const [newStock, setNewStock] = useState({ code: '', name: '', category: '', model: '', stock: 0, cost: 0 });
+  const [isVendorModalOpen, setIsVendorModalOpen] = useState(false);
+  const [newVendor, setNewVendor] = useState({ name: '', contact: '', phone: '' });
 
-  const [payments, setPayments] = useState<PaymentRow[]>([
-    { id: '1', method: '現金', installments: '—' },
-  ]);
+  useEffect(() => {
+    localStorage.setItem(LOCAL_STORAGE_REPAIRS, JSON.stringify(repairs));
+  }, [repairs]);
 
-  const feeRates: Record<string, number> = {
-    '現金': 0,
-    '刷卡': 0.02,
-    '刷卡分期-3': 0.03,
-    '刷卡分期-6': 0.04,
-    '刷卡分期-12': 0.06,
-    '刷卡分期-18': 0.035,
-    '刷卡分期-24': 0.04,
-    '無卡分期': 0.05,
-    '匯款': 0,
+  useEffect(() => {
+    localStorage.setItem(LOCAL_STORAGE_STOCK, JSON.stringify(stockList));
+  }, [stockList]);
+
+  useEffect(() => {
+    localStorage.setItem(LOCAL_STORAGE_VENDORS, JSON.stringify(vendors));
+  }, [vendors]);
+
+  // 打開結帳視窗
+  const handleOpenCheckout = (repair: RepairItem) => {
+    setCheckoutRepair(repair);
+    setCheckoutRepairFee(repair.repairFee || 1200);
+    setCheckoutPaymentMethod('現金');
+    setSelectedParts(repair.usedParts || []);
+    setIsCheckoutModalOpen(true);
   };
 
-  const getTodayStr = () => {
-    const d = new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+  const handleAddPartToCheckout = (part: StockItem) => {
+    setSelectedParts(prev => [...prev, { id: part.id, name: part.name, cost: part.cost }]);
   };
 
-  const [recordSearchKeyword, setRecordSearchKeyword] = useState('');
-  const [filterStoreStaff, setFilterStoreStaff] = useState('全部');
-  const [filterCustType, setFilterCustType] = useState('全部');
-  const [datePreset, setDatePreset] = useState<'today' | 'week' | 'month' | 'all'>('today');
-
-  const [startDate, setStartDate] = useState(getTodayStr());
-  const [endDate, setEndDate] = useState(getTodayStr());
-  const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
-
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [editingRecord, setEditingRecord] = useState<SaleRecord | null>(null);
-
-  const [perfStaff, setPerfStaff] = useState('全部人員');
-  const [perfStartDate, setPerfStartDate] = useState(getTodayStr());
-  const [perfEndDate, setPerfEndDate] = useState(getTodayStr());
-
-  const handleDatePreset = (preset: 'today' | 'week' | 'month' | 'all') => {
-    setDatePreset(preset);
-    const today = new Date();
-    const formatDateStr = (d: Date) => {
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    };
-
-    if (preset === 'today') {
-      const s = formatDateStr(today);
-      setStartDate(s);
-      setEndDate(s);
-    } else if (preset === 'week') {
-      const firstDayOfWeek = new Date(today);
-      firstDayOfWeek.setDate(today.getDate() - today.getDay());
-      setStartDate(formatDateStr(firstDayOfWeek));
-      setEndDate(formatDateStr(today));
-    } else if (preset === 'month') {
-      const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-      setStartDate(formatDateStr(firstDayOfMonth));
-      setEndDate(formatDateStr(today));
-    } else if (preset === 'all') {
-      setStartDate('2025-01-01');
-      setEndDate('2030-12-31');
-    }
+  const handleRemovePartFromCheckout = (index: number) => {
+    setSelectedParts(prev => prev.filter((_, i) => i !== index));
   };
 
-  const filteredSalesRecords = salesRecords.filter(record => {
-    const keyword = recordSearchKeyword.toLowerCase();
-    const matchKeyword = !keyword ||
-      record.orderNo.toLowerCase().includes(keyword) ||
-      record.customerName.toLowerCase().includes(keyword) ||
-      record.salesperson.toLowerCase().includes(keyword) ||
-      record.items.some(i => i.name.toLowerCase().includes(keyword) || (i.imei && i.imei.toLowerCase().includes(keyword)));
+  const totalPartsCost = selectedParts.reduce((sum, p) => sum + p.cost, 0);
+  const estimatedProfit = checkoutRepair?.repairType === '委外維修' 
+    ? checkoutRepairFee - (checkoutRepair.outsourcerCost || 0)
+    : checkoutRepairFee - totalPartsCost;
 
-    const matchStaff = filterStoreStaff === '全部' || record.salesperson === filterStoreStaff;
-    const matchCustType = filterCustType === '全部' || record.customerType === filterCustType;
-    const matchDate = record.date >= startDate && record.date <= endDate;
+  const handleConfirmCheckout = () => {
+    if (!checkoutRepair) return;
 
-    return matchKeyword && matchStaff && matchCustType && matchDate;
-  });
-
-  const filteredPerfRecords = salesRecords.filter(record => {
-    const matchStaff = perfStaff === '全部人員' || record.salesperson === perfStaff;
-    const matchDate = record.date >= perfStartDate && record.date <= perfEndDate;
-    return matchStaff && matchDate;
-  });
-
-  const perfTotalAmount = filteredPerfRecords.reduce((sum, r) => sum + r.totalAmount, 0);
-  const perfTotalProfit = filteredPerfRecords.reduce((sum, r) => sum + r.profit, 0);
-
-  const handleDeleteRecord = async (id: string) => {
-    if (confirm('確定要刪除這筆銷售紀錄嗎？')) {
-      const { error } = await supabase
-        .from('sales_records')
-        .delete()
-        .eq('id', id);
-
-      if (error) {
-        alert('刪除失敗：' + error.message);
-        return;
-      }
-
-      setSalesRecords(prev => prev.filter(r => r.id !== id));
-      setIsEditModalOpen(false);
-      setEditingRecord(null);
-      alert('刪除成功！');
-    }
-  };
-
-  const handleSaveEdit = async () => {
-    if (!editingRecord) return;
-    const totalCost = editingRecord.items.reduce((sum, i) => sum + i.cost * i.quantity, 0);
-    const totalAmount = editingRecord.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
-    const profit = totalAmount - totalCost;
-
-    const updatedDbPayload = {
-      order_no: editingRecord.orderNo,
-      date: editingRecord.date,
-      customer_name: editingRecord.customerName,
-      customer_type: editingRecord.customerType,
-      salesperson: editingRecord.salesperson,
-      store: editingRecord.store,
-      items: editingRecord.items,
-      total_amount: totalAmount,
-      total_cost: totalCost,
-      profit: profit,
-      payment_info: editingRecord.paymentInfo
-    };
-
-    const { error } = await supabase
-      .from('sales_records')
-      .update(updatedDbPayload)
-      .eq('id', editingRecord.id);
-
-    if (error) {
-      alert('更新失敗：' + error.message);
-      return;
-    }
-
-    fetchSalesRecords();
-    setIsEditModalOpen(false);
-    setEditingRecord(null);
-    alert('修改成功！');
-  };
-
-  const addToCart = (item: Product) => {
-    setCart((prev) => {
-      const existing = prev.find((i) => i.id === item.id);
-      if (existing) {
-        return prev.map((i) => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
-      }
-      return [...prev, { id: item.id, name: item.name, price: item.price, cost: item.cost, commission: 0, quantity: 1, type: 'product' }];
+    selectedParts.forEach(used => {
+      setStockList(prev => prev.map(s => s.id === used.id ? { ...s, stock: Math.max(0, s.stock - 1) } : s));
     });
+
+    setRepairs(prev => prev.map(r => r.id === checkoutRepair.id ? {
+      ...r,
+      status: '已取件',
+      repairFee: checkoutRepairFee,
+      usedParts: selectedParts,
+      paymentMethod: checkoutPaymentMethod,
+      profit: estimatedProfit
+    } : r));
+
+    setIsCheckoutModalOpen(false);
+    setSelectedRepair(null);
   };
 
-  const handleSelectPlan = (plan: Plan) => {
-    setSelectedPlan(plan);
-    const planCartItem: CartItem = {
-      id: `plan-${plan.id}`,
-      name: `[${plan.telecom}] ${plan.name} (${plan.type})`,
-      price: 0,
-      cost: 0,
-      commission: plan.commission,
-      quantity: 1,
-      type: 'plan',
-    };
-    setCart((prev) => [...prev.filter(i => i.type !== 'plan'), planCartItem]);
-    setIsPlanModalOpen(false);
-  };
+  // 提交新增維修單
+  const handleAddRepairSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const newNo = `RO${new Date().toISOString().slice(2, 10).replace(/-/g, '')}${Math.floor(100 + Math.random() * 900)}`;
+    const nowStr = `${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 
-  const handleAddCustomItem = () => {
-    if (!customName.trim() || !customPrice) {
-      alert('請完整填寫項目名稱與金額！');
-      return;
-    }
-    const priceNum = parseFloat(customPrice);
-    const costNum = parseFloat(customCost) || 0;
-    if (isNaN(priceNum)) {
-      alert('金額必須為有效數字！');
-      return;
-    }
-
-    const newItem: CartItem = {
-      id: `custom-${Date.now()}`,
-      name: customName,
-      price: priceNum,
-      cost: costNum,
-      commission: 0,
-      quantity: 1,
-      type: customCategory === 'repair' ? 'repair' : 'custom',
-    };
-
-    setCart((prev) => [...prev, newItem]);
-    setCustomName('');
-    setCustomPrice('');
-    setCustomCost('');
-    setIsCustomModalOpen(false);
-  };
-
-  const handleCreateCustomer = async () => {
-    if (!newCustName.trim() || !newCustPhone.trim()) {
-      alert('請填寫姓名與電話！');
-      return;
-    }
-
-    const newDbCustomer = {
-      name: newCustName.trim(),
-      phone: newCustPhone.trim(),
+    const newItem: RepairItem = {
+      id: String(Date.now()),
+      repairNo: newNo,
+      createdAt: nowStr,
+      customerName: newCustomerName || '散客',
+      phone: newPhone || '-',
+      brand: newBrand,
+      brandModel: newBrandModel || '未指定機型',
+      color: newColor,
+      serialNumber: newSerialNumber,
+      problem: newProblem,
+      repairFee: newRepairFee,
+      deposit: newDeposit,
+      detectionFee: newDetectionFee,
+      status: '已收件',
+      repairType: newRepairType,
+      outsourcer: newOutsourcer,
+      outsourcerCost: newOutsourcerCost,
+      note: newNote,
+      password: newPassword,
+      usedParts: [],
+      profit: newRepairType === '委外維修' ? newRepairFee - newOutsourcerCost : newRepairFee
     };
 
-    const { error } = await supabase
-      .from('customers')
-      .insert([newDbCustomer])
-      .select();
+    setRepairs(prev => [newItem, ...prev]);
+    setIsAddRepairModalOpen(false);
 
-    if (error) {
-      alert('建立客戶失敗：' + error.message);
-      return;
-    }
-
-    await fetchCustomers();
-    setCustomerSearch(`${newCustName.trim()} ( ${newCustPhone.trim()} )`);
-    setNewCustName('');
-    setNewCustPhone('');
-    setIsQuickCustomerModalOpen(false);
-    alert('會員建立成功！');
+    // 重置表單
+    setNewCustomerName('');
+    setNewPhone('');
+    setNewBrand('');
+    setNewBrandModel('');
+    setNewColor('');
+    setNewSerialNumber('');
+    setNewProblem('');
+    setNewRepairFee(0);
+    setNewDeposit(0);
+    setNewDetectionFee(0);
+    setNewOutsourcer('');
+    setNewOutsourcerCost(0);
+    setNewNote('');
+    setNewPassword('');
   };
 
-  const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-
-  const totalProfit = cart.reduce((sum, item) => {
-    if (item.type === 'plan') {
-      return sum + item.commission;
+  const handleDeleteRepair = (id: string) => {
+    if (confirm('確定要刪除此維修單嗎？')) {
+      setRepairs(prev => prev.filter(r => r.id !== id));
+      setSelectedRepair(null);
     }
-    return sum + (item.price - item.cost) * item.quantity;
-  }, 0);
-
-  const addPaymentRow = () => {
-    setPayments([...payments, { id: Date.now().toString(), method: '刷卡分期', installments: '3' }]);
   };
 
-  const removePaymentRow = (id: string) => {
-    setPayments(payments.filter(p => p.id !== id));
+  const handleDeleteStock = (id: string) => {
+    if (confirm('確定要刪除此零件嗎？')) {
+      setStockList(prev => prev.filter(s => s.id !== id));
+    }
   };
 
-  const handleCheckout = async () => {
-    if (cart.length === 0) {
-      alert('購物車目前沒有項目！');
-      return;
-    }
-
-    const nowStr = getTodayStr();
-    const orderNo = `SD${nowStr.replace(/-/g, '').slice(2)}${Math.floor(100 + Math.random() * 900)}`;
-    const recordId = `sr-${Date.now()}`;
-
-    const newDbRecord = {
-      id: recordId,
-      order_no: orderNo,
-      date: nowStr,
-      customer_name: customerSearch.split('(')[0].trim() || '個人貴賓',
-      customer_type: '個人貴賓',
-      salesperson: '管理員',
-      store: '總店',
-      items: cart.map(i => ({
-        name: i.name,
-        imei: '—',
-        cost: i.type === 'plan' ? 0 : i.cost,
-        price: i.price,
-        quantity: i.quantity,
-        category: i.type === 'repair' ? 'repair' : 'accessory'
-      })),
-      total_amount: subtotal,
-      total_cost: 0,
-      profit: totalProfit,
-      payment_info: payments.map(p => p.method === '刷卡分期' ? `刷卡分期(${p.installments}期)` : p.method).join(', ')
-    };
-
-    const { error } = await supabase.from('sales_records').insert([newDbRecord]);
-
-    if (error) {
-      alert('結帳失敗：' + error.message);
-      return;
-    }
-
-    await fetchSalesRecords();
-    setExpandedRowId(recordId);
-    alert(`結帳成功！單號：${orderNo}，總金額：$${subtotal.toLocaleString()}，總毛利：$${totalProfit.toLocaleString()}。`);
-
-    setCart([]);
-    setSelectedPlan(null);
-    setPayments([{ id: '1', method: '現金', installments: '—' }]);
-    setCurrentTab('salesRecord');
+  const handleAddStockSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setStockList(prev => [{ id: String(Date.now()), ...newStock }, ...prev]);
+    setIsStockModalOpen(false);
+    setNewStock({ code: '', name: '', category: '', model: '', stock: 0, cost: 0 });
   };
 
-  const filteredProducts = products.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()));
-  const filteredCustomers = customers.filter(c =>
-    c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
-    c.phone.includes(customerSearch)
+  const handleDeleteVendor = (id: string) => {
+    if (confirm('確定要刪除此廠商嗎？')) {
+      setVendors(prev => prev.filter(v => v.id !== id));
+    }
+  };
+
+  const handleAddVendorSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setVendors(prev => [{ id: String(Date.now()), ...newVendor }, ...prev]);
+    setIsVendorModalOpen(false);
+    setNewVendor({ name: '', contact: '', phone: '' });
+  };
+
+  const filteredRepairs = repairs.filter(r => 
+    r.repairNo.includes(searchQuery) || 
+    r.customerName.includes(searchQuery) || 
+    r.phone.includes(searchQuery) || 
+    r.brandModel.includes(searchQuery)
   );
 
-  const filteredPlans = plans.filter(pl => {
-    const matchKw = !planSearch || pl.name.toLowerCase().includes(planSearch.toLowerCase()) || pl.code.toLowerCase().includes(planSearch.toLowerCase());
-    const matchType = activePlanType === '全部' || pl.type === activePlanType;
-    const matchTel = activeTelecom === '所有電信' || pl.telecom === activeTelecom;
-    return matchKw && matchType && matchTel;
-  });
-
   return (
-    <div className="flex-1 flex flex-col min-w-0 overflow-y-auto bg-slate-100 text-slate-800 font-sans w-full">
-      {/* 頂部切換頁籤列 */}
-      <div className="bg-white border-b border-slate-200 px-8 py-3 flex items-center justify-between shadow-sm">
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-bold text-slate-500">快速切換：</span>
-          <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl text-xs">
-            <button
-              onClick={() => setCurrentTab('pos')}
-              className={`px-3 py-1 rounded-lg transition font-medium ${currentTab === 'pos' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              🛒 銷貨結帳
-            </button>
-            <button
-              onClick={() => setCurrentTab('salesRecord')}
-              className={`px-3 py-1 rounded-lg transition font-medium ${currentTab === 'salesRecord' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              📄 銷售紀錄
-            </button>
-            <button
-              onClick={() => setCurrentTab('performance')}
-              className={`px-3 py-1 rounded-lg transition font-medium ${currentTab === 'performance' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              📊 業績報表
-            </button>
-          </div>
+    <div className="p-8 bg-slate-50 min-h-screen text-xs text-slate-700">
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">維修與庫存管理</h1>
+          <p className="text-slate-400 mt-1">管理客戶維修單、零件庫存及配合廠商</p>
         </div>
-        <div className="text-xs text-slate-400">
-          目前身份：<strong className="text-slate-700">管理員</strong>
+        <div className="flex items-center gap-3">
+          {activeTab === 'repairs' && (
+            <button
+              onClick={() => setIsAddRepairModalOpen(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-2xl font-bold transition shadow-sm flex items-center gap-2"
+            >
+              <span>＋</span> 新增維修單
+            </button>
+          )}
+          <div className="flex bg-white p-1 rounded-2xl shadow-sm border border-slate-100">
+            <button onClick={() => setActiveTab('repairs')} className={`px-4 py-2 rounded-xl font-semibold transition ${activeTab === 'repairs' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600'}`}>維修單列表 ({repairs.length})</button>
+            <button onClick={() => setActiveTab('stock')} className={`px-4 py-2 rounded-xl font-semibold transition ${activeTab === 'stock' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600'}`}>零件庫存 ({stockList.length})</button>
+            <button onClick={() => setActiveTab('vendors')} className={`px-4 py-2 rounded-xl font-semibold transition ${activeTab === 'vendors' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600'}`}>廠商管理 ({vendors.length})</button>
+          </div>
         </div>
       </div>
 
-      {/* 銷貨結帳 */}
-      {currentTab === 'pos' && (
-        <div className="p-8 space-y-6">
-          <div>
-            <h1 className="text-xl font-bold text-slate-800">銷貨結帳</h1>
-            <p className="text-xs text-slate-400 mt-0.5">選取方案不代入月租，金額可自由手動修改，傭金自動計入毛利。</p>
-          </div>
+      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm mb-6 flex items-center justify-between gap-4">
+        <div className="relative flex-1">
+          <span className="absolute left-3 top-2.5 text-slate-400">🔍</span>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="搜尋單號、客戶姓名、電話或機型..."
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 focus:outline-none focus:border-blue-500"
+          />
+        </div>
+        {activeTab === 'stock' && (
+          <button onClick={() => setIsStockModalOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-semibold transition shadow-sm">+ 新增零件</button>
+        )}
+        {activeTab === 'vendors' && (
+          <button onClick={() => setIsVendorModalOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-semibold transition shadow-sm">+ 新增廠商</button>
+        )}
+      </div>
 
-          <div className="grid grid-cols-12 gap-6">
-            <div className="col-span-12 lg:col-span-7 space-y-5">
-              <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/60 space-y-3">
-                <div className="flex justify-between items-center">
-                  <label className="text-xs font-bold text-slate-700">選擇方案</label>
-                  <button onClick={() => { fetchPlans(); setIsPlanModalOpen(true); }} className="text-xs text-blue-600 font-semibold hover:underline">
-                    + 代入電信方案
-                  </button>
-                </div>
-                <div
-                  onClick={() => { fetchPlans(); setIsPlanModalOpen(true); }}
-                  className="w-full border border-dashed border-slate-300 rounded-xl p-3.5 bg-slate-50/50 hover:bg-slate-50 cursor-pointer flex justify-between items-center transition"
+      {/* 1. 維修單列表 */}
+      {activeTab === 'repairs' && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <table className="w-full text-left">
+            <thead className="bg-slate-50/80 border-b border-slate-100 text-slate-400 font-medium">
+              <tr>
+                <th className="p-4">維修單號</th>
+                <th className="p-4">建立時間</th>
+                <th className="p-4">客戶姓名</th>
+                <th className="p-4">連絡電話</th>
+                <th className="p-4">機型</th>
+                <th className="p-4">問題描述</th>
+                <th className="p-4">類型</th>
+                <th className="p-4">目前狀態</th>
+                <th className="p-4 text-center">操作</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filteredRepairs.map(repair => (
+                <tr key={repair.id} className="hover:bg-slate-50 transition cursor-pointer" onClick={() => setSelectedRepair(repair)}>
+                  <td className="p-4 font-mono font-medium text-blue-600">{repair.repairNo}</td>
+                  <td className="p-4 text-slate-400">{repair.createdAt}</td>
+                  <td className="p-4 font-bold text-slate-800">{repair.customerName}</td>
+                  <td className="p-4 font-mono">{repair.phone}</td>
+                  <td className="p-4">{repair.brandModel}</td>
+                  <td className="p-4">{repair.problem}</td>
+                  <td className="p-4">
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${repair.repairType === '委外維修' ? 'bg-amber-50 text-amber-600 border border-amber-200' : 'bg-slate-100 text-slate-600'}`}>
+                      {repair.repairType || '一般維修'}
+                    </span>
+                  </td>
+                  <td className="p-4">
+                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${
+                      repair.status === '已取件' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-blue-50 text-blue-600 border border-blue-100'
+                    }`}>
+                      {repair.status}
+                    </span>
+                  </td>
+                  <td className="p-4 text-center flex items-center justify-center gap-2">
+                    {repair.status !== '已取件' && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleOpenCheckout(repair); }}
+                        className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition font-semibold shadow-sm"
+                      >
+                        已取件結帳
+                      </button>
+                    )}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setSelectedRepair(repair); }}
+                      className="px-3 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg transition font-medium"
+                    >
+                      檢視
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* 2. 零件庫存 */}
+      {activeTab === 'stock' && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <table className="w-full text-left">
+            <thead className="bg-slate-50/80 border-b border-slate-100 text-slate-400 font-medium">
+              <tr>
+                <th className="p-4">零件編號</th>
+                <th className="p-4">零件名稱</th>
+                <th className="p-4">分類</th>
+                <th className="p-4">適用機型</th>
+                <th className="p-4">庫存數量</th>
+                <th className="p-4">成本價</th>
+                <th className="p-4 text-center">操作</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {stockList.map(item => (
+                <tr key={item.id} className="hover:bg-slate-50 transition">
+                  <td className="p-4 font-mono">{item.code}</td>
+                  <td className="p-4 font-bold text-slate-800">{item.name}</td>
+                  <td className="p-4">{item.category}</td>
+                  <td className="p-4">{item.model}</td>
+                  <td className="p-4 font-bold font-mono">{item.stock}</td>
+                  <td className="p-4 font-mono">${item.cost}</td>
+                  <td className="p-4 text-center">
+                    <button onClick={() => handleDeleteStock(item.id)} className="p-1.5 text-slate-400 hover:text-rose-500 rounded-lg">🗑️</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* 3. 廠商管理 */}
+      {activeTab === 'vendors' && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <table className="w-full text-left">
+            <thead className="bg-slate-50/80 border-b border-slate-100 text-slate-400 font-medium">
+              <tr>
+                <th className="p-4">廠商名稱</th>
+                <th className="p-4">聯絡人</th>
+                <th className="p-4">行動電話</th>
+                <th className="p-4 text-center">操作</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {vendors.map(vendor => (
+                <tr key={vendor.id} className="hover:bg-slate-50 transition">
+                  <td className="p-4 font-bold text-slate-800">{vendor.name}</td>
+                  <td className="p-4">{vendor.contact}</td>
+                  <td className="p-4 font-mono">{vendor.phone}</td>
+                  <td className="p-4 text-center">
+                    <button onClick={() => handleDeleteVendor(vendor.id)} className="p-1.5 text-slate-400 hover:text-rose-500 rounded-lg">🗑️</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* 🚀 新增維修單彈窗 (支援一般維修與委外維修切換) */}
+      {isAddRepairModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-100">
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <h2 className="text-base font-bold text-slate-800">新增維修單</h2>
+              <button onClick={() => setIsAddRepairModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+            </div>
+
+            <form onSubmit={handleAddRepairSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+              {/* 類型切換按鈕 */}
+              <div className="grid grid-cols-2 gap-3 p-1 bg-slate-100 rounded-2xl">
+                <button
+                  type="button"
+                  onClick={() => setNewRepairType('一般維修')}
+                  className={`py-2.5 rounded-xl font-bold transition shadow-sm ${newRepairType === '一般維修' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
                 >
-                  <span className="text-xs text-slate-600 font-medium">
-                    {selectedPlan ? `📌 已代入：[${selectedPlan.telecom}] ${selectedPlan.name} (傭金 $${selectedPlan.commission})` : '👉 點擊開啟方案選擇視窗'}
-                  </span>
-                  <span className="text-xs text-blue-600 font-semibold bg-blue-50 px-2.5 py-1 rounded-lg">選擇方案</span>
-                </div>
+                  一般維修
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewRepairType('委外維修')}
+                  className={`py-2.5 rounded-xl font-bold transition shadow-sm ${newRepairType === '委外維修' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500'}`}
+                >
+                  ↗ 委外維修
+                </button>
               </div>
 
-              <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/60 space-y-4">
-                <h2 className="text-xs font-bold text-slate-700">加入商品</h2>
-                <div className="relative">
-                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">🔍</span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-slate-400 mb-1">客戶姓名 *</label>
                   <input
                     type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="搜尋商品名稱 / 商品編號 / IMEI..."
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500"
+                    required
+                    value={newCustomerName}
+                    onChange={e => setNewCustomerName(e.target.value)}
+                    placeholder="輸入客戶姓名或電話..."
+                    className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-xl focus:outline-none focus:border-blue-500"
                   />
                 </div>
-
-                <div className="space-y-2 pt-2">
-                  {filteredProducts.map((p) => (
-                    <div
-                      key={p.id}
-                      onClick={() => addToCart(p)}
-                      className="flex justify-between items-center p-3.5 rounded-xl border border-slate-100 bg-white hover:border-blue-300 hover:shadow-sm cursor-pointer transition"
-                    >
-                      <div>
-                        <p className="text-xs font-bold text-slate-800">{p.name}</p>
-                        <p className="text-[11px] text-slate-400 mt-0.5">庫存：{p.stock} | 成本：${p.cost}</p>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs font-mono font-bold text-blue-600">${p.price}</span>
-                        <span className="px-2.5 py-1 bg-blue-50 text-blue-600 text-[11px] rounded-lg font-medium">+ 加入</span>
-                      </div>
-                    </div>
-                  ))}
+                <div>
+                  <label className="block text-slate-400 mb-1">連絡電話</label>
+                  <input
+                    type="text"
+                    value={newPhone}
+                    onChange={e => setNewPhone(e.target.value)}
+                    placeholder="0912-345678"
+                    className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-xl focus:outline-none focus:border-blue-500 font-mono"
+                  />
                 </div>
               </div>
-            </div>
 
-            <div className="col-span-12 lg:col-span-5 space-y-5">
-              <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/60 space-y-4 relative">
-                <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm">🛒</span>
-                    <h2 className="text-xs font-bold text-slate-800">購物車明細</h2>
-                    <span className="px-2 py-0.5 bg-blue-600 text-white rounded-full text-[10px] font-mono">{cart.length}</span>
-                  </div>
-                  <button onClick={() => { setCart([]); setSelectedPlan(null); }} className="text-xs text-slate-400 hover:text-rose-500">清空</button>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-slate-400 mb-1">品牌</label>
+                  <input
+                    type="text"
+                    value={newBrand}
+                    onChange={e => setNewBrand(e.target.value)}
+                    placeholder="Apple / Samsung..."
+                    className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-xl focus:outline-none focus:border-blue-500"
+                  />
                 </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">機型 *</label>
+                  <input
+                    type="text"
+                    required
+                    value={newBrandModel}
+                    onChange={e => setNewBrandModel(e.target.value)}
+                    placeholder="iPhone 15"
+                    className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-xl focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
 
-                <div className="space-y-1.5 relative">
-                  <div className="flex justify-between items-center text-[11px] text-slate-500">
-                    <span>客戶（選填，個人貴賓可不選）</span>
-                    <button onClick={() => setIsQuickCustomerModalOpen(true)} className="text-blue-600 font-semibold hover:underline">
-                      ＋ 快速建立會員
-                    </button>
-                  </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-slate-400 mb-1">顏色</label>
+                  <input
+                    type="text"
+                    value={newColor}
+                    onChange={e => setNewColor(e.target.value)}
+                    placeholder="例如：太空黑"
+                    className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-xl focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">序號 / IMEI</label>
+                  <input
+                    type="text"
+                    value={newSerialNumber}
+                    onChange={e => setNewSerialNumber(e.target.value)}
+                    placeholder="裝置序號"
+                    className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-xl focus:outline-none focus:border-blue-500 font-mono"
+                  />
+                </div>
+              </div>
 
-                  <div className="relative">
+              {/* 若選擇委外維修，顯示委外店家與廠商報價 */}
+              {newRepairType === '委外維修' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-amber-50/50 p-4 rounded-2xl border border-amber-100">
+                  <div>
+                    <label className="block text-amber-800 mb-1 font-semibold">委外店家</label>
                     <input
                       type="text"
-                      value={customerSearch}
-                      onFocus={() => { fetchCustomers(); setIsCustomerDropdownOpen(true); }}
-                      onChange={(e) => {
-                        setCustomerSearch(e.target.value);
-                        setIsCustomerDropdownOpen(true);
-                      }}
-                      placeholder="搜尋姓名或電話..."
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500"
+                      value={newOutsourcer}
+                      onChange={e => setNewOutsourcer(e.target.value)}
+                      placeholder="店家名稱或地址..."
+                      className="w-full bg-white border border-amber-200 p-2.5 rounded-xl focus:outline-none focus:border-amber-500"
                     />
+                  </div>
+                  <div>
+                    <label className="block text-amber-800 mb-1 font-semibold">廠商報價 (元)</label>
+                    <input
+                      type="number"
+                      value={newOutsourcerCost}
+                      onChange={e => setNewOutsourcerCost(Number(e.target.value))}
+                      className="w-full bg-white border border-amber-200 p-2.5 rounded-xl focus:outline-none focus:border-amber-500 font-mono"
+                    />
+                  </div>
+                </div>
+              )}
 
-                    {isCustomerDropdownOpen && (
-                      <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto z-20">
-                        {filteredCustomers.length === 0 ? (
-                          <div className="p-3 text-center text-xs text-slate-400">找不到符合的客戶資料</div>
-                        ) : (
-                          filteredCustomers.map((c) => (
-                            <div
-                              key={c.id}
-                              onClick={() => {
-                                setCustomerSearch(`${c.name} ( ${c.phone} )`);
-                                setIsCustomerDropdownOpen(false);
-                              }}
-                              className="px-3 py-2.5 hover:bg-blue-50 cursor-pointer flex justify-between items-center text-xs border-b border-slate-50 last:border-none"
-                            >
-                              <span className="font-bold text-slate-800">{c.name}</span>
-                              <span className="text-slate-400 font-mono">{c.phone}</span>
+              <div>
+                <label className="block text-slate-400 mb-1">問題描述 *</label>
+                <textarea
+                  required
+                  rows={3}
+                  value={newProblem}
+                  onChange={e => setNewProblem(e.target.value)}
+                  placeholder="描述客戶反映的問題..."
+                  className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-xl focus:outline-none focus:border-blue-500 resize-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1">維修價 (元)</label>
+                  <input
+                    type="number"
+                    value={newRepairFee}
+                    onChange={e => setNewRepairFee(Number(e.target.value))}
+                    className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-xl font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">訂金 (元)</label>
+                  <input
+                    type="number"
+                    value={newDeposit}
+                    onChange={e => setNewDeposit(Number(e.target.value))}
+                    className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-xl font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">檢測費 (元)</label>
+                  <input
+                    type="number"
+                    value={newDetectionFee}
+                    onChange={e => setNewDetectionFee(Number(e.target.value))}
+                    className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-xl font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">備註</label>
+                <input
+                  type="text"
+                  value={newNote}
+                  onChange={e => setNewNote(e.target.value)}
+                  placeholder="其他補充事項..."
+                  className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-xl"
+                />
+              </div>
+
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                <label className="block text-slate-500 font-semibold mb-1">客戶手機解鎖密碼</label>
+                <input
+                  type="text"
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  placeholder="供維修人員解鎖使用..."
+                  className="w-full bg-white border border-slate-200 p-2.5 rounded-xl font-mono"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsAddRepairModalOpen(false)}
+                  className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-semibold transition"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition shadow-sm"
+                >
+                  確認新增
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 🚀 維修取件結帳彈窗 */}
+      {isCheckoutModalOpen && checkoutRepair && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden border border-slate-100">
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <h2 className="text-base font-bold text-slate-800">維修取件結帳 — {checkoutRepair.repairNo}</h2>
+              <button onClick={() => setIsCheckoutModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+            </div>
+
+            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6 max-h-[80vh] overflow-y-auto">
+              <div className="space-y-4">
+                <div className="bg-slate-50 p-4 rounded-2xl flex justify-between items-center">
+                  <div>客戶：<span className="font-bold text-slate-800">{checkoutRepair.customerName}</span></div>
+                  <div>機型：<span className="font-bold text-slate-800">{checkoutRepair.brandModel}</span></div>
+                  <div>問題：<span className="font-bold text-slate-800">{checkoutRepair.problem}</span></div>
+                </div>
+
+                {checkoutRepair.repairType === '委外維修' ? (
+                  <div className="bg-amber-50 p-4 rounded-2xl border border-amber-200 space-y-2">
+                    <div className="font-bold text-amber-800">委外維修資訊</div>
+                    <div>委外店家：<span className="font-bold">{checkoutRepair.outsourcer || '未指定'}</span></div>
+                    <div>廠商報價成本：<span className="font-mono text-rose-600 font-bold">${checkoutRepair.outsourcerCost || 0}</span></div>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="font-bold text-slate-700 mb-2">使用料件（成本追蹤）</div>
+                    {selectedParts.length > 0 && (
+                      <div className="mb-3 space-y-2">
+                        <div className="text-[11px] text-slate-400 font-semibold">已選用的零件：</div>
+                        {selectedParts.map((p, idx) => (
+                          <div key={idx} className="flex justify-between items-center bg-blue-50/60 border border-blue-100 p-2.5 rounded-xl">
+                            <div>
+                              <span className="font-bold text-blue-900">{p.name}</span>
+                              <span className="text-slate-500 ml-2">成本 ${p.cost}</span>
                             </div>
-                          ))
-                        )}
+                            <button onClick={() => handleRemovePartFromCheckout(idx)} className="text-rose-500 font-bold px-2 hover:bg-rose-100 rounded">✕</button>
+                          </div>
+                        ))}
                       </div>
                     )}
-                  </div>
-                </div>
-
-                <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
-                  {cart.length === 0 ? (
-                    <p className="text-center py-6 text-xs text-slate-400">尚未加入品項或方案</p>
-                  ) : (
-                    cart.map((item) => {
-                      const itemProfit = item.type === 'plan' ? item.commission : (item.price - item.cost) * item.quantity;
-                      return (
-                        <div key={item.id} className="p-3 rounded-xl border border-slate-100 bg-slate-50/50 space-y-2 text-xs">
-                          <div className="flex justify-between items-center">
-                            <span className="font-bold text-slate-800">{item.name}</span>
-                            <button onClick={() => {
-                              if (item.type === 'plan') setSelectedPlan(null);
-                              setCart(cart.filter(i => i.id !== item.id));
-                            }} className="text-slate-300 hover:text-rose-500 font-bold">✕</button>
+                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                      {stockList.map(item => (
+                        <div key={item.id} className="bg-slate-50 hover:bg-slate-100 border border-slate-200/60 p-3 rounded-2xl flex justify-between items-center transition">
+                          <div>
+                            <div className="font-bold text-slate-800">{item.name}</div>
+                            <div className="text-[11px] text-slate-400 mt-0.5">庫存 {item.stock} · 成本 ${item.cost}</div>
                           </div>
-
-                          <div className="flex justify-between items-center gap-2">
-                            <div>
-                              <span className="text-[10px] text-slate-400 block">{item.type === 'plan' ? '方案傭金' : '售價 ($)'}</span>
-                              {item.type === 'plan' ? (
-                                <span className="font-mono font-bold text-emerald-600">+${item.commission}</span>
-                              ) : (
-                                <input
-                                  type="number"
-                                  value={item.price}
-                                  onChange={(e) => {
-                                    const val = parseFloat(e.target.value) || 0;
-                                    setCart(cart.map(i => i.id === item.id ? { ...i, price: val } : i));
-                                  }}
-                                  className="w-24 bg-white border border-slate-200 rounded-lg px-2 py-1 font-mono text-slate-700"
-                                />
-                              )}
-                            </div>
-
-                            <div className="text-right">
-                              <span className="text-[10px] text-slate-400 block">預估毛利</span>
-                              <span className="font-mono font-bold text-emerald-600">+${itemProfit}</span>
-                            </div>
-                          </div>
+                          <button
+                            onClick={() => handleAddPartToCheckout(item)}
+                            className="w-8 h-8 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center justify-center transition shadow-sm"
+                          >
+                            +
+                          </button>
                         </div>
-                      );
-                    })
-                  )}
-                </div>
-
-                <button
-                  onClick={() => { setCustomCategory('accessory'); setIsCustomModalOpen(true); }}
-                  className="w-full py-2.5 border border-dashed border-slate-300 hover:border-blue-500 hover:text-blue-600 text-slate-500 rounded-xl text-xs font-semibold transition"
-                >
-                  ＋ 自訂項目 / 🛠️ 維修項目
-                </button>
-
-                <div className="border-t border-slate-100 pt-4 space-y-3">
-                  <div className="flex justify-between items-center">
-                    <label className="text-xs font-bold text-slate-700">付款方式與期數</label>
-                    <button onClick={addPaymentRow} className="text-xs text-blue-600 font-semibold hover:underline">+ 新增付款方式</button>
-                  </div>
-
-                  <div className="space-y-2">
-                    {payments.map((pay) => {
-                      const currentKey = pay.method === '刷卡分期' ? `刷卡分期-${pay.installments}` : pay.method;
-                      const rate = feeRates[currentKey] || 0;
-                      const estimatedFee = Math.round(subtotal * rate);
-
-                      return (
-                        <div key={pay.id} className="bg-slate-50 p-3 rounded-xl border border-slate-200/80 space-y-2 text-xs">
-                          <div className="flex items-center gap-2">
-                            <select
-                              value={pay.method}
-                              onChange={(e) => {
-                                const newMethod = e.target.value as any;
-                                setPayments(payments.map(p => p.id === pay.id ? { ...p, method: newMethod } : p));
-                              }}
-                              className="bg-white border border-slate-200 rounded-lg px-2 py-1.5 font-medium text-slate-700"
-                            >
-                              <option value="現金">現金</option>
-                              <option value="刷卡">刷卡</option>
-                              <option value="刷卡分期">刷卡分期</option>
-                              <option value="無卡分期">無卡分期</option>
-                              <option value="匯款">匯款</option>
-                            </select>
-
-                            {pay.method === '刷卡分期' && (
-                              <select
-                                value={pay.installments}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  setPayments(payments.map(p => p.id === pay.id ? { ...p, installments: val } : p));
-                                }}
-                                className="bg-white border border-slate-200 rounded-lg px-2 py-1.5 font-medium text-blue-600"
-                              >
-                                <option value="3">3 期 (3%)</option>
-                                <option value="6">6 期 (4%)</option>
-                                <option value="12">12 期 (6%)</option>
-                                <option value="18">18 期</option>
-                                <option value="24">24 期</option>
-                              </select>
-                            )}
-
-                            <button onClick={() => removePaymentRow(pay.id)} className="ml-auto text-slate-400 hover:text-rose-500 font-bold">🗑️</button>
-                          </div>
-
-                          <div className="flex justify-between items-center text-[11px] text-slate-500 px-1">
-                            <span>手續費率: <strong className="text-slate-700">{(rate * 100)}%</strong></span>
-                            <span className="text-amber-600 font-mono">手續費加成: +${estimatedFee}</span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="border-t border-slate-100 pt-4 space-y-2">
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-500">預估總毛利：</span>
-                    <span className="font-mono font-bold text-emerald-600 text-sm">+${totalProfit.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="font-bold text-slate-700">總金額：</span>
-                    <span className="font-mono font-bold text-rose-600 text-lg">${subtotal.toLocaleString()}</span>
-                  </div>
-
-                  <button onClick={handleCheckout} className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm transition mt-2">
-                    確認結帳
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 銷售紀錄頁籤 */}
-      {currentTab === 'salesRecord' && (
-        <div className="p-8 space-y-6">
-          <div>
-            <h1 className="text-xl font-bold text-slate-800">銷售紀錄</h1>
-            <p className="text-xs text-slate-400 mt-0.5">檢視與管理所有歷史訂單記錄。</p>
-          </div>
-
-          <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/60 space-y-4">
-            <div className="flex flex-wrap gap-3 items-center justify-between">
-              <input
-                type="text"
-                value={recordSearchKeyword}
-                onChange={(e) => setRecordSearchKeyword(e.target.value)}
-                placeholder="搜尋單號、客戶、銷售員、品項..."
-                className="bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-700 w-72 focus:outline-none focus:border-blue-500"
-              />
-              <div className="flex items-center gap-2">
-                <button onClick={() => handleDatePreset('today')} className={`px-3 py-1.5 rounded-xl text-xs font-medium ${datePreset === 'today' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>今日</button>
-                <button onClick={() => handleDatePreset('week')} className={`px-3 py-1.5 rounded-xl text-xs font-medium ${datePreset === 'week' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>本週</button>
-                <button onClick={() => handleDatePreset('month')} className={`px-3 py-1.5 rounded-xl text-xs font-medium ${datePreset === 'month' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>本月</button>
-                <button onClick={() => handleDatePreset('all')} className={`px-3 py-1.5 rounded-xl text-xs font-medium ${datePreset === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>全部</button>
-                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-700 ml-2" />
-                <span className="text-slate-400">~</span>
-                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-700" />
-              </div>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-slate-100 text-slate-400 font-medium">
-                    <th className="pb-3 pl-3">單號 / 日期</th>
-                    <th className="pb-3">客戶</th>
-                    <th className="pb-3">品項內容</th>
-                    <th className="pb-3">付款資訊</th>
-                    <th className="pb-3 text-right">總金額</th>
-                    <th className="pb-3 text-right pr-3">毛利</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {filteredSalesRecords.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="text-center py-8 text-slate-400">沒有符合條件的銷售紀錄</td>
-                    </tr>
-                  ) : (
-                    filteredSalesRecords.map((r) => (
-                      <tr key={r.id} className="hover:bg-slate-50/80 transition">
-                        <td className="py-3.5 pl-3">
-                          <p className="font-bold text-slate-800 font-mono">{r.orderNo}</p>
-                          <p className="text-[11px] text-slate-400">{r.date}</p>
-                        </td>
-                        <td className="py-3.5 font-medium text-slate-700">{r.customerName}</td>
-                        <td className="py-3.5 max-w-xs">
-                          {r.items.map((i, idx) => (
-                            <div key={idx} className="text-slate-600 truncate">
-                              • {i.name} {i.quantity > 1 ? `x${i.quantity}` : ''} (${i.price})
-                            </div>
-                          ))}
-                        </td>
-                        <td className="py-3.5 text-slate-600">{r.paymentInfo}</td>
-                        <td className="py-3.5 text-right font-mono font-bold text-slate-800">${r.totalAmount.toLocaleString()}</td>
-                        <td className="py-3.5 text-right pr-3 font-mono font-bold text-emerald-600">+${r.profit.toLocaleString()}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 業績報表頁籤 */}
-      {currentTab === 'performance' && (
-        <div className="p-8 space-y-6">
-          <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-2">
-            <h2 className="text-base font-bold text-slate-800">業績報表</h2>
-            <p className="text-xs text-slate-400">檢視指定區間內的整體業績與毛利統計。</p>
-            <div className="flex items-center gap-2 pt-2">
-              <input 
-                type="date" 
-                value={perfStartDate} 
-                onChange={(e) => setPerfStartDate(e.target.value)} 
-                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-700"
-              />
-              <span className="text-slate-400">~</span>
-              <input 
-                type="date" 
-                value={perfEndDate} 
-                onChange={(e) => setPerfEndDate(e.target.value)} 
-                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-700"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-6">
-            <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200/60 space-y-2">
-              <span className="text-xs text-slate-400 font-medium">區間總業績</span>
-              <h3 className="text-4xl font-mono font-bold text-slate-800">${perfTotalAmount.toLocaleString()}</h3>
-            </div>
-            <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200/60 space-y-2">
-              <span className="text-xs text-slate-400 font-medium">區間總毛利</span>
-              <h3 className="text-4xl font-mono font-bold text-emerald-600">+${perfTotalProfit.toLocaleString()}</h3>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 快速建立會員 Modal */}
-      {isQuickCustomerModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-6 w-96 shadow-xl space-y-4">
-            <h3 className="text-sm font-bold text-slate-800">快速建立會員</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs text-slate-500 block mb-1">客戶姓名</label>
-                <input
-                  type="text"
-                  value={newCustName}
-                  onChange={(e) => setNewCustName(e.target.value)}
-                  placeholder="請輸入姓名"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-slate-500 block mb-1">手機號碼</label>
-                <input
-                  type="text"
-                  value={newCustPhone}
-                  onChange={(e) => setNewCustPhone(e.target.value)}
-                  placeholder="請輸入手機號碼"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs"
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button onClick={() => setIsQuickCustomerModalOpen(false)} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-medium">取消</button>
-              <button onClick={handleCreateCustomer} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-medium">確認建立</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 方案選擇 Modal */}
-      {isPlanModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-6 w-[600px] max-h-[80vh] flex flex-col shadow-xl space-y-4">
-            <div className="flex justify-between items-center">
-              <h3 className="text-sm font-bold text-slate-800">選擇電信方案</h3>
-              <button onClick={() => setIsPlanModalOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
-            </div>
-            <input
-              type="text"
-              value={planSearch}
-              onChange={(e) => setPlanSearch(e.target.value)}
-              placeholder="搜尋方案名稱或代碼..."
-              className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs"
-            />
-            <div className="overflow-y-auto flex-1 space-y-2 pr-1">
-              {filteredPlans.length === 0 ? (
-                <div className="text-center py-8 text-xs text-slate-400">找不到符合的方案</div>
-              ) : (
-                filteredPlans.map((pl) => (
-                  <div
-                    key={pl.id}
-                    onClick={() => handleSelectPlan(pl)}
-                    className="p-3 border border-slate-100 hover:border-blue-500 hover:bg-blue-50/30 rounded-xl cursor-pointer flex justify-between items-center transition text-xs"
-                  >
-                    <div>
-                      <p className="font-bold text-slate-800">[{pl.telecom}] {pl.name} ({pl.type})</p>
-                      <p className="text-[11px] text-slate-400 mt-0.5">月租：${pl.monthlyFee} | 佣金：${pl.commission}</p>
+                      ))}
                     </div>
-                    <span className="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-medium">選擇</span>
                   </div>
-                ))
-              )}
+                )}
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex gap-4">
+                  <div className="flex-1">
+                    <label className="block text-slate-400 mb-1">維修費 (元) 可調整</label>
+                    <input
+                      type="number"
+                      value={checkoutRepairFee}
+                      onChange={e => setCheckoutRepairFee(Number(e.target.value))}
+                      className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl font-bold text-lg text-slate-800 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-2">付款方式</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {['現金', '刷卡', '匯款'].map(method => (
+                      <button
+                        key={method}
+                        type="button"
+                        onClick={() => setCheckoutPaymentMethod(method)}
+                        className={`py-2.5 rounded-xl font-bold transition shadow-sm ${
+                          checkoutPaymentMethod === method ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                      >
+                        {method}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 p-4 rounded-2xl space-y-2 border border-slate-100">
+                  <div className="font-bold text-slate-700 flex items-center gap-1">⚙️ 結帳摘要</div>
+                  <div className="flex justify-between text-slate-600">
+                    <span>維修費</span>
+                    <span className="font-mono">${checkoutRepairFee}</span>
+                  </div>
+                  {checkoutRepair.repairType === '委外維修' ? (
+                    <div className="flex justify-between text-slate-600">
+                      <span>委外成本</span>
+                      <span className="font-mono text-rose-500">-${checkoutRepair.outsourcerCost || 0}</span>
+                    </div>
+                  ) : (
+                    <div className="flex justify-between text-slate-600">
+                      <span>零件總成本</span>
+                      <span className="font-mono text-rose-500">-${totalPartsCost}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between font-bold text-emerald-600 pt-2 border-t border-slate-200/60 text-sm">
+                    <span>預估毛利</span>
+                    <span className="font-mono">${estimatedProfit}</span>
+                  </div>
+                  <div className="flex justify-between font-bold text-slate-800 text-sm pt-1">
+                    <span>客戶本次付款</span>
+                    <span className="font-mono">${checkoutRepairFee}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 bg-slate-50/50 border-t border-slate-100 flex justify-end gap-3">
+              <button
+                onClick={() => setIsCheckoutModalOpen(false)}
+                className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-semibold transition"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleConfirmCheckout}
+                className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition shadow-sm"
+              >
+                確認取件結帳 ${checkoutRepairFee}
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* 自訂項目 / 維修項目 Modal */}
-      {isCustomModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-6 w-96 shadow-xl space-y-4">
-            <h3 className="text-sm font-bold text-slate-800">新增自訂項目 / 維修項目</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs text-slate-500 block mb-1">分類</label>
-                <select
-                  value={customCategory}
-                  onChange={(e) => setCustomCategory(e.target.value as any)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs"
-                >
-                  <option value="accessory">自訂品項 / 周邊</option>
-                  <option value="repair">🛠️ 維修項目</option>
-                </select>
+      {/* 檢視明細彈窗 */}
+      {selectedRepair && !isCheckoutModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100">
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <h2 className="text-base font-bold text-slate-800">維修單詳情 — {selectedRepair.repairNo}</h2>
+              <button onClick={() => setSelectedRepair(null)} className="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-3 bg-slate-50 p-4 rounded-2xl">
+                <div>客戶：<span className="font-bold">{selectedRepair.customerName}</span></div>
+                <div>電話：<span className="font-mono">{selectedRepair.phone}</span></div>
+                <div>機型：<span className="font-bold">{selectedRepair.brandModel}</span></div>
+                <div>類型：<span className="font-bold text-amber-600">{selectedRepair.repairType || '一般維修'}</span></div>
+                <div>狀態：<span className="font-bold text-blue-600">{selectedRepair.status}</span></div>
               </div>
-              <div>
-                <label className="text-xs text-slate-500 block mb-1">項目名稱</label>
-                <input
-                  type="text"
-                  value={customName}
-                  onChange={(e) => setCustomName(e.target.value)}
-                  placeholder="例如：iPhone 14 換螢幕 / 保護貼"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs"
-                />
+              <div className="bg-slate-50 p-4 rounded-2xl">
+                <span className="text-slate-400">問題描述：</span>
+                <p className="font-medium mt-1">{selectedRepair.problem}</p>
               </div>
-              <div>
-                <label className="text-xs text-slate-500 block mb-1">售價 ($)</label>
-                <input
-                  type="number"
-                  value={customPrice}
-                  onChange={(e) => setCustomPrice(e.target.value)}
-                  placeholder="0"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-slate-500 block mb-1">成本 ($)</label>
-                <input
-                  type="number"
-                  value={customCost}
-                  onChange={(e) => setCustomCost(e.target.value)}
-                  placeholder="0"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono"
-                />
+              {selectedRepair.status === '已取件' && (
+                <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 space-y-1">
+                  <div className="font-bold text-emerald-800">結帳資訊</div>
+                  <div>付款方式：{selectedRepair.paymentMethod || '現金'}</div>
+                  <div>維修費：${selectedRepair.repairFee}</div>
+                  <div>預估毛利：<span className="font-bold text-emerald-600">${selectedRepair.profit}</span></div>
+                </div>
+              )}
+              <div className="flex justify-between pt-3 border-t border-slate-100">
+                <button onClick={() => handleDeleteRepair(selectedRepair.id)} className="px-4 py-2 bg-rose-50 text-rose-600 rounded-xl font-medium">刪除此單</button>
+                <button onClick={() => setSelectedRepair(null)} className="px-5 py-2 bg-slate-800 text-white rounded-xl font-semibold">關閉</button>
               </div>
             </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button onClick={() => setIsCustomModalOpen(false)} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-medium">取消</button>
-              <button onClick={handleAddCustomItem} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-medium">加入購物車</button>
+          </div>
+        </div>
+      )}
+
+      {/* 新增零件與廠商 Modal */}
+      {isStockModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-100">
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <h2 className="text-base font-bold text-slate-800">＋ 新增零件</h2>
+              <button onClick={() => setIsStockModalOpen(false)} className="text-slate-400">✕</button>
             </div>
+            <form onSubmit={handleAddStockSubmit} className="p-6 space-y-4">
+              <div><label className="block mb-1">零件代碼</label><input type="text" required value={newStock.code} onChange={e => setNewStock({...newStock, code: e.target.value})} className="w-full bg-slate-50 border border-slate-200 p-2 rounded-xl" /></div>
+              <div><label className="block mb-1">零件名稱</label><input type="text" required value={newStock.name} onChange={e => setNewStock({...newStock, name: e.target.value})} className="w-full bg-slate-50 border border-slate-200 p-2 rounded-xl" /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="block mb-1">庫存數量</label><input type="number" value={newStock.stock} onChange={e => setNewStock({...newStock, stock: Number(e.target.value)})} className="w-full bg-slate-50 border border-slate-200 p-2 rounded-xl" /></div>
+                <div><label className="block mb-1">成本價 ($)</label><input type="number" value={newStock.cost} onChange={e => setNewStock({...newStock, cost: Number(e.target.value)})} className="w-full bg-slate-50 border border-slate-200 p-2 rounded-xl" /></div>
+              </div>
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button type="button" onClick={() => setIsStockModalOpen(false)} className="px-4 py-2 bg-slate-100 rounded-xl">取消</button>
+                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-xl font-semibold">確認新增</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isVendorModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-100">
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <h2 className="text-base font-bold text-slate-800">＋ 新增廠商</h2>
+              <button onClick={() => setIsVendorModalOpen(false)} className="text-slate-400">✕</button>
+            </div>
+            <form onSubmit={handleAddVendorSubmit} className="p-6 space-y-4">
+              <div><label className="block mb-1">廠商名稱</label><input type="text" required value={newVendor.name} onChange={e => setNewVendor({...newVendor, name: e.target.value})} className="w-full bg-slate-50 border border-slate-200 p-2 rounded-xl" /></div>
+              <div><label className="block mb-1">聯絡人</label><input type="text" value={newVendor.contact} onChange={e => setNewVendor({...newVendor, contact: e.target.value})} className="w-full bg-slate-50 border border-slate-200 p-2 rounded-xl" /></div>
+              <div><label className="block mb-1">電話</label><input type="text" value={newVendor.phone} onChange={e => setNewVendor({...newVendor, phone: e.target.value})} className="w-full bg-slate-50 border border-slate-200 p-2 rounded-xl" /></div>
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button type="button" onClick={() => setIsVendorModalOpen(false)} className="px-4 py-2 bg-slate-100 rounded-xl">取消</button>
+                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-xl font-semibold">確認新增</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
