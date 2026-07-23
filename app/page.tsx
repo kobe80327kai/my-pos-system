@@ -33,7 +33,6 @@ export default function RepairsReportsPage() {
     let combined: RecordItem[] = [];
 
     try {
-      // 1. 抓取銷售紀錄
       const { data: sales } = await supabase.from('sales_records').select('*');
       if (sales) {
         sales.forEach((s: any) => {
@@ -54,7 +53,6 @@ export default function RepairsReportsPage() {
         });
       }
 
-      // 2. 自動偵測維修資料表並抓取維修業績與毛利
       const repairTables = ['repairs', 'repair_records', 'repair', 'orders', 'maintenance'];
       for (const tName of repairTables) {
         const { data: repairs } = await supabase.from(tName).select('*');
@@ -63,7 +61,6 @@ export default function RepairsReportsPage() {
             const d = (r.date || r.created_at || r.updated_at || getTodayStr()).substring(0, 10);
             const amt = Number(r.price || r.total_price || r.totalPrice || r.amount || r.repair_price || 0);
             const costVal = Number(r.cost || r.outsource_cost || r.outsourceCost || 0);
-            // 毛利 = 維修售價 - 成本
             const profitVal = Number(r.profit || (amt - costVal));
             const pm = r.payment_method || r.paymentMethod || r.pay_method || '現金';
             const titleVal = r.repair_no || r.repairNo || r.device_model || r.deviceModel || '維修服務';
@@ -93,14 +90,12 @@ export default function RepairsReportsPage() {
     fetchAllData();
   }, []);
 
-  // 區間篩選
   const filteredRecords = allRecords.filter(r => r.date >= startDate && r.date <= endDate);
   const totalRevenue = filteredRecords.reduce((sum, r) => sum + r.amount, 0);
   const totalProfit = filteredRecords.reduce((sum, r) => sum + r.profit, 0);
 
   return (
     <div className="p-8 space-y-6 bg-slate-100 min-h-screen">
-      {/* 頂部快速切換列 */}
       <div className="flex justify-between items-center bg-white rounded-3xl p-4 shadow-sm border border-slate-200/60">
         <div className="flex items-center gap-2">
           <span className="text-xs text-slate-400 font-medium ml-2">快速切換：</span>
@@ -126,7 +121,6 @@ export default function RepairsReportsPage() {
         <span className="text-xs text-slate-500 font-medium mr-2">目前身份：管理員</span>
       </div>
 
-      {/* 業績報表內容 */}
       {activeTab === 'performance' && (
         <div className="space-y-6">
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-2">
@@ -162,7 +156,6 @@ export default function RepairsReportsPage() {
         </div>
       )}
 
-      {/* 銷貨結帳或銷售紀錄的分頁佔位（可根據您原本的檔案內容替換） */}
       {activeTab !== 'performance' && (
         <div className="bg-white rounded-3xl p-12 text-center text-slate-400 text-sm">
           正在顯示 {activeTab === 'checkout' ? '銷貨結帳' : '銷售紀錄'} 畫面...
