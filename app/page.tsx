@@ -52,7 +52,6 @@ interface RepairOrder {
 }
 
 export default function Home() {
-  // 側邊欄主選單狀態
   const [currentMenu, setCurrentMenu] = useState<'control' | 'inventory' | 'repairManagement' | 'salesRecord' | 'performance'>('repairManagement');
 
   const getTodayStr = () => {
@@ -60,7 +59,6 @@ export default function Home() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
 
-  // 模擬資料初始化
   const [salesRecords, setSalesRecords] = useState<SaleRecord[]>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('pos_sales_records');
@@ -81,7 +79,6 @@ export default function Home() {
     ];
   });
 
-  // 維修單資料 (擁有獨立的維修毛利紀錄欄位：quotedPrice 與 repairCost)
   const [repairOrders, setRepairOrders] = useState<RepairOrder[]>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('pos_repair_orders');
@@ -122,36 +119,27 @@ export default function Home() {
     localStorage.setItem('pos_repair_orders', JSON.stringify(repairOrders));
   }, [repairOrders]);
 
-  // 銷貨結帳 State
   const [cart, setCart] = useState<CartItem[]>([]);
   const [productSearch, setProductSearch] = useState('');
 
-  // 銷售紀錄 State
   const [recordSearchKeyword, setRecordSearchKeyword] = useState('');
   const [recordStartDate, setRecordStartDate] = useState(getTodayStr());
   const [recordEndDate, setRecordEndDate] = useState(getTodayStr());
 
-  // 維修管理 State (獨立的維修新增表單)
   const [repairSearchKeyword, setRepairSearchKeyword] = useState('');
-  const [repairStatusFilter, setRepairStatusFilter] = useState('全部');
   const [isNewRepairModalOpen, setIsNewRepairModalOpen] = useState(false);
   const [repairCustName, setRepairCustName] = useState('');
   const [repairCustPhone, setRepairCustPhone] = useState('');
   const [repairDeviceModel, setRepairDeviceModel] = useState('');
   const [repairImei, setRepairImei] = useState('');
-  const [repairType, setRepairType] = useState<'一般維修' | '委外維修'>('一般維修');
-  const [repairOutsourcer, setRepairOutsourcer] = useState('');
   const [repairIssue, setRepairIssue] = useState('');
   const [repairQuotedPrice, setRepairQuotedPrice] = useState('');
   const [repairCostVal, setRepairCostVal] = useState('');
-  const [repairNotes, setRepairNotes] = useState('');
 
-  // 業績報表 State
   const [perfStartDate, setPerfStartDate] = useState(getTodayStr());
   const [perfEndDate, setPerfEndDate] = useState(getTodayStr());
   const [perfStaff, setPerfStaff] = useState('全部');
-  const [includeRepairInProfit, setIncludeRepairInProfit] = useState(true); // 讓您可以自由勾選是否把維修毛利計入業績報表總額
-  const [isSalesOverviewModalOpen, setIsSalesOverviewModalOpen] = useState(false);
+  const [includeRepairInProfit, setIncludeRepairInProfit] = useState(true);
 
   const addToCart = (item: Product) => {
     setCart((prev) => {
@@ -190,35 +178,35 @@ export default function Home() {
     setCurrentMenu('salesRecord');
   };
 
-  // 資料計算：一般銷售
   const filteredSalesRecords = salesRecords.filter(r => {
-    const matchDate = r.date >= perfStartDate && r.date <= perfEndDate;
-    const matchStaff = perfStaff === '全部' || r.salesperson === perfStaff;
-    return matchDate && matchStaff;
+    const matchDate = r.date >= recordStartDate && r.date <= recordEndDate;
+    const matchKeyword = !recordSearchKeyword || 
+      r.orderNo.includes(recordSearchKeyword) || 
+      r.customerName.includes(recordSearchKeyword) || 
+      r.salesperson.includes(recordSearchKeyword);
+    return matchDate && matchKeyword;
   });
 
   const salesTotalAmount = filteredSalesRecords.reduce((sum, r) => sum + r.totalAmount, 0);
   const salesTotalProfit = filteredSalesRecords.reduce((sum, r) => sum + r.profit, 0);
 
-  // 資料計算：已完成/已交機的維修毛利（記錄在獨立維修模組，但在業績報表中正確統計）
   const filteredRepairOrders = repairOrders.filter(r => {
     const matchDate = r.date >= perfStartDate && r.date <= perfEndDate;
     const matchStaff = perfStaff === '全部' || r.salesperson === perfStaff;
-    const isCompleted = r.status === '已完修' || r.status === '已交機'; // 只有完成的維修才計算毛利
+    const isCompleted = r.status === '已完修' || r.status === '已交機';
     return matchDate && matchStaff && isCompleted;
   });
 
   const repairTotalAmount = filteredRepairOrders.reduce((sum, r) => sum + r.quotedPrice, 0);
   const repairTotalProfit = filteredRepairOrders.reduce((sum, r) => sum + (r.quotedPrice - r.repairCost), 0);
 
-  // 總計（可依需求選擇是否包含維修毛利）
   const grandTotalAmount = salesTotalAmount + (includeRepairInProfit ? repairTotalAmount : 0);
   const grandTotalProfit = salesTotalProfit + (includeRepairInProfit ? repairTotalProfit : 0);
 
   return (
     <div className="flex h-screen bg-slate-100 text-slate-800 font-sans overflow-hidden">
-      {/* 左側導覽列 */}
-      <div className="w-64 bg-[#0B132B] text-slate-300 flex flex-col justify-between select-none">
+      {/* 唯一且乾淨的左側導覽列 */}
+      <div className="w-64 bg-[#0B132B] text-slate-300 flex flex-col justify-between select-none shrink-0">
         <div>
           <div className="p-6 flex items-center gap-3 border-b border-slate-800/60">
             <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-md">P</div>
@@ -314,7 +302,7 @@ export default function Home() {
           <div className="p-8 space-y-6">
             <div>
               <h1 className="text-xl font-bold text-slate-800">銷售紀錄</h1>
-              <p className="text-xs text-slate-400 mt-0.5">共 {salesRecords.length} 筆紀錄</p>
+              <p className="text-xs text-slate-400 mt-0.5">共 {filteredSalesRecords.length} 筆紀錄</p>
             </div>
             <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/60 space-y-4">
               <div className="flex flex-wrap gap-3 items-center justify-between">
@@ -329,7 +317,6 @@ export default function Home() {
                   <input type="date" value={recordStartDate} onChange={(e) => setRecordStartDate(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs" />
                   <span className="text-slate-400">~</span>
                   <input type="date" value={recordEndDate} onChange={(e) => setRecordEndDate(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs" />
-                  <button className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold">查詢</button>
                 </div>
               </div>
               <div className="overflow-x-auto">
@@ -344,15 +331,19 @@ export default function Home() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {salesRecords.map((r) => (
-                      <tr key={r.id} className="hover:bg-slate-50/80 transition">
-                        <td className="py-3.5 pl-3 font-mono font-bold text-blue-600">{r.orderNo}</td>
-                        <td className="py-3.5 text-slate-700">{r.customerName}</td>
-                        <td className="py-3.5 text-slate-600">{r.items.map(i => i.name).join(', ')}</td>
-                        <td className="py-3.5 text-slate-700">{r.salesperson}</td>
-                        <td className="py-3.5 text-right pr-3 font-mono font-bold text-emerald-600">+${r.profit}</td>
-                      </tr>
-                    ))}
+                    {filteredSalesRecords.length === 0 ? (
+                      <tr><td colSpan={5} className="text-center py-10 text-slate-400">目前沒有符合條件的銷售紀錄</td></tr>
+                    ) : (
+                      filteredSalesRecords.map((r) => (
+                        <tr key={r.id} className="hover:bg-slate-50/80 transition">
+                          <td className="py-3.5 pl-3 font-mono font-bold text-blue-600">{r.orderNo}</td>
+                          <td className="py-3.5 text-slate-700">{r.customerName}</td>
+                          <td className="py-3.5 text-slate-600">{r.items.map(i => i.name).join(', ')}</td>
+                          <td className="py-3.5 text-slate-700">{r.salesperson}</td>
+                          <td className="py-3.5 text-right pr-3 font-mono font-bold text-emerald-600">+${r.profit}</td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -360,7 +351,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* 獨立的維修管理模組 (完美獨立，擁有報價與成本記錄，以供計算維修毛利) */}
+        {/* 維修管理模組 */}
         {currentMenu === 'repairManagement' && (
           <div className="p-8 space-y-6">
             <div className="flex justify-between items-center">
@@ -440,7 +431,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* 業績報表模組 (完美整合：可選擇是否將維修毛利計入總業績) */}
+        {/* 業績報表模組 */}
         {currentMenu === 'performance' && (
           <div className="p-8 space-y-6">
             <div>
@@ -448,7 +439,6 @@ export default function Home() {
               <p className="text-xs text-slate-400 mt-0.5">全店銷售與維修毛利整合分析報表</p>
             </div>
 
-            {/* 查詢與開關列 */}
             <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 flex flex-wrap gap-4 items-center justify-between">
               <div className="flex flex-wrap items-center gap-3">
                 <div>
@@ -481,13 +471,9 @@ export default function Home() {
                     className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700"
                   />
                 </div>
-                <button className="mt-5 px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition">
-                  查詢
-                </button>
               </div>
 
-              {/* 勾選開關：是否計入維修毛利 */}
-              <div className="flex items-center gap-3 bg-slate-50 px-4 py-2.5 rounded-2xl border border-slate-200">
+              <div className="flex items-center gap-3 bg-slate-50 px-4 py-2.5 rounded-2xl border border-slate-200 mt-5">
                 <input
                   type="checkbox"
                   id="includeRepair"
@@ -501,7 +487,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* 總額統計卡片 */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="bg-emerald-50/40 rounded-3xl p-6 shadow-sm border border-emerald-100 space-y-1">
                 <span className="text-xs text-slate-400 font-medium">總銷售金額 (含完修報價)</span>
@@ -515,7 +500,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* 明細清單 */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               <div className="lg:col-span-3 bg-white rounded-3xl p-5 shadow-sm border border-slate-200/60 space-y-4">
                 <div className="border-b border-slate-100 pb-3">
@@ -567,7 +551,7 @@ export default function Home() {
         )}
       </div>
 
-      {/* 新增維修單 Modal (完全獨立的維修輸入介面) */}
+      {/* 新增維修單 Modal */}
       {isNewRepairModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-6 w-[480px] shadow-xl space-y-4">
