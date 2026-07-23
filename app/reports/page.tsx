@@ -3,59 +3,24 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 
-interface SaleRecord {
+interface RecordItem {
   id: string;
-  orderNo: string;
   date: string;
-  totalAmount: number;
-  profit: number;
-  createdAt?: string;
-  items: {
-    name: string;
-    price: number;
-    quantity: number;
-  }[];
-}
-
-interface RepairRecord {
-  id: string;
-  repairNo: string;
-  date: string;
-  cost: number;        
-  price: number;       
-  deviceModel: string;
-  faultDesc: string;
-  paymentMethod: string;
-  status: string;
-  createdAt?: string;
-}
-
-interface TransactionRecord {
-  id: string;
-  type: 'expense' | 'income';
-  category: string;
-  paymentMethod: string;
   amount: number;
-  remark: string;
-  date: string;
-  createdAt?: string;
+  cost: number;
+  paymentMethod: string;
+  title: string;
+  type: 'sale' | 'repair' | 'income' | 'expense';
 }
 
 export default function ReportsPage() {
-  const [salesRecords, setSalesRecords] = useState<SaleRecord[]>([]);
-  const [repairRecords, setRepairRecords] = useState<RepairRecord[]>([]);
-  const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
-  
+  const [allRecords, setAllRecords] = useState<RecordItem[]>([]);
   const [cashBalance, setCashBalance] = useState<number>(40000);
-  const [isEditingCash, setIsEditingCash] = useState(false);
-  const [tempCash, setTempCash] = useState('40000');
-
-  // 彈跳視窗狀態
+  
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [showIncomeModal, setShowIncomeModal] = useState(false);
   const [showSalesDetailModal, setShowSalesDetailModal] = useState(false);
 
-  // 表單輸入狀態
   const [expenseCategory, setExpenseCategory] = useState('雜支');
   const [expensePayment, setExpensePayment] = useState('現金');
   const [expenseAmount, setExpenseAmount] = useState<number>(0);
@@ -75,185 +40,163 @@ export default function ReportsPage() {
   };
 
   const [selectedDate, setSelectedDate] = useState(getTodayStr());
-  const [reportFilterType, setReportFilterType] = useState<'month' | 'lastMonth' | 'custom'>('month');
-  const [reportStartDate, setReportStartDate] = useState(`2026-06-30`);
+  const [reportFilterType, setReportFilterType] = useState<'month' | 'custom'>('month');
+  const [reportStartDate, setReportStartDate] = useState('2026-06-30');
   const [reportEndDate, setReportEndDate] = useState(getTodayStr());
 
-  const fetchData = async () => {
+  const fetchAllData = async () => {
+    let combined: RecordItem[] = [];
+
     try {
-      // 1. 抓取銷售紀錄
-      const { data: salesData } = await supabase.from('sales_records').select('*').order('created_at', { ascending: false });
-      if (salesData) {
-        setSalesRecords(salesData.map((item: any) => ({
-          id: item.id,
-          orderNo: item.order_no || item.orderNo || 'ORD',
-          date: (item.date || item.created_at || getTodayStr()).split('T')[0],
-          createdAt: item.created_at || item.date,
-          items: typeof item.items === 'string' ? JSON.parse(item.items) : (item.items || []),
-          totalAmount: Number(item.total_amount || item.totalAmount || 0),
-          profit: Number(item.profit || 0),
-        })));
+      // 1. 抓取 sales_records
+      const { data: sales } = await supabase.from('sales_records').select('*');
+      if (sales) {
+        sales.forEach((s: any) => {
+          const d = (s.date || s.created_at || getTodayStr()).substring(0, 10);
+          const amt = Number(s.total_amount || s.totalAmount || s.price || 0);
+          combined.push({
+            id: s.id,
+            date: d,
+            amount: amt,
+            cost: Number(s.cost || 0),
+            paymentMethod: s.payment_method || s.paymentMethod || '現金',
+            title: s.order_no || s.orderNo || '銷售訂單',
+            type: 'sale'
+          });
+        });
       }
 
-      // 2. 自動從多個可能表格抓取維修紀錄
-      let rawRepairs: any[] = [];
-      const tablesToTry = ['repairs', 'repair_records', 'orders', 'repair'];
-      for (const tableName of tablesToTry) {
-        const { data } = await supabase.from(tableName).select('*');
-        if (data && data.length > 0) {
-          rawRepairs = data;
-          break;
+      // 2. 嘗試多個可能名稱的維修資料表
+      const repairTables = ['repairs', 'repair_records', 'repair', 'orders', 'maintenance'];
+      for (const tName of repairTables) {
+        const { data: repairs } = await supabase.from(tName).select('*');
+        if (repairs && repairs.length > 0) {
+          repairs.forEach((r: any) => {
+            const d = (r.date || r.created_at || r.updated_at || getTodayStr()).substring(0, 10);
+            const amt = Number(r.price || r.total_price || r.totalPrice || r.amount || r.repair_price || r.cost || 0);
+            const costVal = Number(r.cost || r.outsource_cost || 0);
+            const pm = r.payment_method || r.paymentMethod || r.pay_method || '現金';
+            const titleVal = r.repair_no || r.repairNo || r.device_model || r.deviceModel || r.model || '維修服務';
+            combined.push({
+              id: r.id,
+              date: d,
+              amount: amt,
+              cost: costVal,
+              paymentMethod: pm,
+              title: titleVal,
+              type: 'repair'
+            });
+          });
+          break; // 找到一個有資料的就停
         }
       }
 
-      if (rawRepairs.length > 0) {
-        setRepairRecords(rawRepairs.map((item: any) => {
-          const priceVal = Number(
-            item.price ?? item.total_price ?? item.totalPrice ?? item.amount ?? item.repair_price ?? item.repairPrice ?? item.cost ?? 0
-          );
-          const costVal = Number(item.cost || item.outsource_cost || item.outsourceCost || 0);
-          const repairNoVal = item.repair_no || item.repairNo || item.order_no || item.id?.slice(0, 8) || 'REP';
-          const dateVal = (item.date || item.created_at || item.updated_at || getTodayStr()).split('T')[0];
-          const deviceVal = item.device_model || item.deviceModel || item.model || item.name || '維修裝置';
-          const faultVal = item.fault_desc || item.faultDesc || item.description || '維修服務';
-          const paymentVal = item.payment_method || item.paymentMethod || item.pay_method || '現金';
-          const statusVal = item.status || item.repair_status || '';
-
-          return {
-            id: item.id,
-            repairNo: repairNoVal,
-            date: dateVal,
-            cost: costVal,
-            price: priceVal,
-            deviceModel: deviceVal,
-            faultDesc: faultVal,
-            paymentMethod: paymentVal,
-            status: statusVal,
-            createdAt: item.created_at || dateVal,
-          };
-        }));
+      // 3. 抓取 transactions (收支)
+      const { data: trans } = await supabase.from('transactions').select('*');
+      if (trans) {
+        trans.forEach((tr: any) => {
+          const d = (tr.date || tr.created_at || getTodayStr()).substring(0, 10);
+          const amt = Number(tr.amount || 0);
+          const tType = tr.type === 'expense' ? 'expense' : 'income';
+          combined.push({
+            id: tr.id,
+            date: d,
+            amount: amt,
+            cost: 0,
+            paymentMethod: tr.payment_method || tr.paymentMethod || '現金',
+            title: tr.remark || tr.category || (tType === 'expense' ? '雜支' : '雜收'),
+            type: tType
+          });
+        });
       }
 
-      // 3. 抓取其他收支紀錄
-      const { data: transData } = await supabase.from('transactions').select('*');
-      if (transData) {
-        setTransactions(transData.map((item: any) => ({
-          id: item.id,
-          type: item.type,
-          category: item.category,
-          paymentMethod: item.payment_method || item.paymentMethod || '現金',
-          amount: Number(item.amount || 0),
-          remark: item.remark || '',
-          date: (item.date || item.created_at || getTodayStr()).split('T')[0],
-          createdAt: item.created_at || item.date,
-        })));
-      }
+      setAllRecords(combined);
     } catch (err) {
       console.error(err);
     }
   };
 
   useEffect(() => {
-    fetchData();
+    fetchAllData();
   }, []);
 
   const handleAddExpense = async () => {
     if (!expenseAmount || expenseAmount <= 0) {
-      alert('請輸入有效的支出金額');
+      alert('請輸入有效金額');
       return;
     }
-    const newTrans = {
+    const { error } = await supabase.from('transactions').insert([{
       type: 'expense',
       category: expenseCategory,
       payment_method: expensePayment,
       amount: expenseAmount,
       remark: expenseRemark,
-      date: selectedDate,
-    };
-    const { error } = await supabase.from('transactions').insert([newTrans]);
-    if (error) {
-      alert('新增支出失敗: ' + error.message);
-    } else {
+      date: selectedDate
+    }]);
+    if (error) alert('失敗: ' + error.message);
+    else {
       setShowExpenseModal(false);
       setExpenseAmount(0);
       setExpenseRemark('');
-      fetchData();
+      fetchAllData();
     }
   };
 
   const handleAddIncome = async () => {
     if (!incomeAmount || incomeAmount <= 0) {
-      alert('請輸入有效的收入金額');
+      alert('請輸入有效金額');
       return;
     }
-    const newTrans = {
+    const { error } = await supabase.from('transactions').insert([{
       type: 'income',
       category: incomeCategory,
       payment_method: incomePayment,
       amount: incomeAmount,
       remark: incomeRemark,
-      date: selectedDate,
-    };
-    const { error } = await supabase.from('transactions').insert([newTrans]);
-    if (error) {
-      alert('新增收入失敗: ' + error.message);
-    } else {
+      date: selectedDate
+    }]);
+    if (error) alert('失敗: ' + error.message);
+    else {
       setShowIncomeModal(false);
       setIncomeAmount(0);
       setIncomeRemark('');
-      fetchData();
+      fetchAllData();
     }
   };
 
   // 當日資料篩選
-  const currentDaySales = salesRecords.filter(r => r.date === selectedDate);
-  const currentDayRepairs = repairRecords.filter(r => r.date === selectedDate);
-  const currentDayTrans = transactions.filter(t => t.date === selectedDate);
+  const dayRecords = allRecords.filter(r => r.date === selectedDate);
 
-  const currentDaySalesTotal = currentDaySales.reduce((sum, r) => sum + r.totalAmount, 0);
-  const currentDayRepairIncomeTotal = currentDayRepairs.reduce((sum, r) => sum + r.price, 0);
-  const currentDayOtherIncomeTotal = currentDayTrans.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
+  const daySalesAndRepairs = dayRecords.filter(r => r.type === 'sale' || r.type === 'repair');
+  const daySalesTotal = daySalesAndRepairs.reduce((sum, r) => sum + r.amount, 0);
+  const dayOtherIncome = dayRecords.filter(r => r.type === 'income').reduce((sum, r) => sum + r.amount, 0);
+  const totalIncome = daySalesTotal + dayOtherIncome;
 
-  const totalIncome = currentDaySalesTotal + currentDayRepairIncomeTotal + currentDayOtherIncomeTotal;
-
-  const currentDayRepairCostTotal = currentDayRepairs.reduce((sum, r) => sum + r.cost, 0);
-  const currentDayExpenseTrans = currentDayTrans.filter(t => t.type === 'expense');
-  const currentDayExpenseTransTotal = currentDayExpenseTrans.reduce((sum, t) => sum + t.amount, 0);
-  const totalExpense = currentDayRepairCostTotal + currentDayExpenseTransTotal;
+  const dayExpenses = dayRecords.filter(r => r.type === 'expense' || r.type === 'repair');
+  const totalExpense = dayRecords.filter(r => r.type === 'expense').reduce((sum, r) => sum + r.amount, 0) + dayRecords.filter(r => r.type === 'repair').reduce((sum, r) => sum + r.cost, 0);
 
   const netIncome = totalIncome - totalExpense;
 
-  // 各支付方式統計
-  const getPayMethodStats = (methodName: string) => {
-    const repairAmt = currentDayRepairs.filter(r => r.paymentMethod === methodName).reduce((sum, r) => sum + r.price, 0);
-    const incAmt = currentDayTrans.filter(t => t.type === 'income' && t.paymentMethod === methodName).reduce((sum, t) => sum + t.amount, 0);
-    const expAmt = currentDayTrans.filter(t => t.type === 'expense' && t.paymentMethod === methodName).reduce((sum, t) => sum + t.amount, 0);
-    
-    let total = repairAmt + incAmt - expAmt;
-    if (methodName === '現金') {
-      total += currentDaySalesTotal;
-    }
-    const count = currentDayRepairs.filter(r => r.paymentMethod === methodName).length + currentDayTrans.filter(t => t.paymentMethod === methodName).length + (methodName === '現金' ? currentDaySales.length : 0);
-    return { total, count };
+  const getPayStats = (method: string) => {
+    const matched = dayRecords.filter(r => r.paymentMethod === method);
+    const inc = matched.filter(r => r.type === 'sale' || r.type === 'repair' || r.type === 'income').reduce((s, r) => s + r.amount, 0);
+    const exp = matched.filter(r => r.type === 'expense').reduce((s, r) => s + r.amount, 0);
+    return { total: inc - exp, count: matched.length };
   };
 
-  const cashStats = getPayMethodStats('現金');
-  const cardStats = getPayMethodStats('刷卡');
-  const cardInstallmentStats = getPayMethodStats('刷卡/分期');
-  const noCardStats = getPayMethodStats('無卡分期');
-  const linePayStats = getPayMethodStats('LinePay');
-  const transferStats = getPayMethodStats('匯款');
+  const cashStats = getPayStats('現金');
+  const cardStats = getPayStats('刷卡');
+  const cardInstStats = getPayStats('刷卡/分期');
+  const noCardStats = getPayStats('無卡分期');
+  const linePayStats = getPayStats('LinePay');
+  const transferStats = getPayStats('匯款');
 
-  // 區間報表計算
-  const filteredSales = salesRecords.filter(r => r.date >= reportStartDate && r.date <= reportEndDate);
-  const filteredRepairs = repairRecords.filter(r => r.date >= reportStartDate && r.date <= reportEndDate);
-  const filteredTrans = transactions.filter(t => t.date >= reportStartDate && t.date <= reportEndDate);
-
-  const reportSalesTotal = filteredSales.reduce((sum, r) => sum + r.totalAmount, 0) + filteredRepairs.reduce((sum, r) => sum + r.price, 0);
-  const reportCommissionTotal = filteredSales.reduce((sum, r) => sum + r.profit, 0);
-  const reportOtherIncomeTotal = filteredTrans.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
-  const reportExpenseTotal = filteredTrans.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0) + filteredRepairs.reduce((sum, r) => sum + r.cost, 0);
-  const reportNetProfit = reportSalesTotal + reportOtherIncomeTotal - reportExpenseTotal;
+  // 區間報表計算（移除佣金）
+  const rangeRecords = allRecords.filter(r => r.date >= reportStartDate && r.date <= reportEndDate);
+  const rangeSalesTotal = rangeRecords.filter(r => r.type === 'sale' || r.type === 'repair').reduce((s, r) => s + r.amount, 0);
+  const rangeOtherIncome = rangeRecords.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0);
+  const rangeExpenseTotal = rangeRecords.filter(r => r.type === 'expense').reduce((s, r) => s + r.amount, 0) + rangeRecords.filter(r => r.type === 'repair').reduce((s, r) => s + r.cost, 0);
+  const rangeNetProfit = rangeSalesTotal + rangeOtherIncome - rangeExpenseTotal;
 
   return (
     <div className="p-8 space-y-6 bg-slate-100 min-h-screen relative">
@@ -273,18 +216,8 @@ export default function ReportsPage() {
           </button>
         </div>
         <div className="flex items-center gap-3">
-          <button 
-            onClick={() => setShowExpenseModal(true)}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition shadow-sm"
-          >
-            + 新增支出
-          </button>
-          <button 
-            onClick={() => setShowIncomeModal(true)}
-            className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold transition shadow-sm"
-          >
-            + 新增雜收
-          </button>
+          <button onClick={() => setShowExpenseModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition shadow-sm">+ 新增支出</button>
+          <button onClick={() => setShowIncomeModal(true)} className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold transition shadow-sm">+ 新增雜收</button>
         </div>
       </div>
 
@@ -313,7 +246,7 @@ export default function ReportsPage() {
       <div className="grid grid-cols-2 gap-6">
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-4">
           <div className="flex justify-between items-center">
-            <span className="text-sm font-bold text-slate-800 flex items-center gap-2">📝 收入明細</span>
+            <span className="text-sm font-bold text-slate-800">📝 收入明細</span>
             <span className="text-xs font-mono font-bold text-emerald-600">${totalIncome.toLocaleString()}</span>
           </div>
           <div 
@@ -321,24 +254,24 @@ export default function ReportsPage() {
             className="bg-slate-50 hover:bg-slate-100 cursor-pointer rounded-2xl p-3.5 flex justify-between items-center text-xs transition"
           >
             <span className="text-blue-600 font-medium">銷售與維修收入小計 (點擊看明細)</span>
-            <span className="font-mono font-bold text-slate-700">{currentDaySales.length + currentDayRepairs.length} 筆 <span className="text-blue-600 ml-1">${(currentDaySalesTotal + currentDayRepairIncomeTotal).toLocaleString()}</span></span>
+            <span className="font-mono font-bold text-slate-700">{daySalesAndRepairs.length} 筆 <span className="text-blue-600 ml-1">${daySalesTotal.toLocaleString()}</span></span>
           </div>
         </div>
 
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-4">
           <div className="flex justify-between items-center">
-            <span className="text-sm font-bold text-slate-800 flex items-center gap-2">支 出 (雜支)</span>
+            <span className="text-sm font-bold text-slate-800">支 出 (雜支)</span>
             <span className="text-xs font-mono font-bold text-rose-500">${totalExpense.toLocaleString()}</span>
           </div>
           <div className="bg-slate-50 rounded-2xl p-3.5 flex justify-between items-center text-xs">
-            <span className="text-slate-600 font-medium">{currentDayExpenseTrans.length > 0 ? currentDayExpenseTrans[0].remark || '支出項目' : '今日無支出記錄'}</span>
+            <span className="text-slate-600 font-medium">支出項目總計</span>
             <span className="font-mono font-bold text-rose-500">${totalExpense.toLocaleString()}</span>
           </div>
         </div>
       </div>
 
       <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-4">
-        <span className="text-sm font-bold text-slate-800 flex items-center gap-2">💳 款項結算</span>
+        <span className="text-sm font-bold text-slate-800">💳 款項結算</span>
         <div className="grid grid-cols-3 gap-4">
           <div className="p-4 bg-emerald-50/30 rounded-2xl border border-emerald-100/50 space-y-1">
             <span className="text-xs text-slate-500 font-medium">現金</span>
@@ -352,8 +285,8 @@ export default function ReportsPage() {
           </div>
           <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
             <span className="text-xs text-slate-500 font-medium">刷卡/分期</span>
-            <p className="text-xl font-mono font-bold text-slate-800">${cardInstallmentStats.total.toLocaleString()}</p>
-            <span className="text-[10px] text-slate-400">{cardInstallmentStats.count} 筆</span>
+            <p className="text-xl font-mono font-bold text-slate-800">${cardInstStats.total.toLocaleString()}</p>
+            <span className="text-[10px] text-slate-400">{cardInstStats.count} 筆</span>
           </div>
           <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
             <span className="text-xs text-slate-500 font-medium">無卡分期</span>
@@ -373,53 +306,46 @@ export default function ReportsPage() {
         </div>
 
         <div className="grid grid-cols-2 gap-4 pt-2">
-          <div className="p-4 bg-amber-50/40 rounded-2xl border border-amber-100 flex justify-between items-center">
-            <div>
-              <span className="text-xs text-amber-700 font-medium">零用金</span>
-              <p className="text-xl font-mono font-bold text-amber-800">${cashBalance.toLocaleString()}</p>
-            </div>
+          <div className="p-4 bg-amber-50/40 rounded-2xl border border-amber-100">
+            <span className="text-xs text-amber-700 font-medium">零用金</span>
+            <p className="text-xl font-mono font-bold text-amber-800">${cashBalance.toLocaleString()}</p>
           </div>
-          <div className="p-4 bg-emerald-50/40 rounded-2xl border border-emerald-100 flex justify-between items-center">
-            <div>
-              <span className="text-xs text-emerald-700 font-medium">本日結算</span>
-              <p className="text-xl font-mono font-bold text-emerald-800">${(cashBalance + cashStats.total).toLocaleString()}</p>
-            </div>
+          <div className="p-4 bg-emerald-50/40 rounded-2xl border border-emerald-100">
+            <span className="text-xs text-emerald-700 font-medium">本日結算</span>
+            <p className="text-xl font-mono font-bold text-emerald-800">${(cashBalance + cashStats.total).toLocaleString()}</p>
           </div>
         </div>
       </div>
 
       <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-4">
         <div className="flex justify-between items-center">
-          <span className="text-sm font-bold text-slate-800 flex items-center gap-2">📊 盈餘報表</span>
+          <span className="text-sm font-bold text-slate-800">📊 盈餘報表</span>
           <div className="flex items-center gap-2">
-            <button onClick={() => { setReportFilterType('month'); setReportStartDate('2026-06-30'); setReportEndDate(getTodayStr()); }} className={`px-3 py-1.5 rounded-xl text-xs font-medium transition ${reportFilterType === 'month' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>本月</button>
-            <button onClick={() => setReportFilterType('custom')} className={`px-3 py-1.5 rounded-xl text-xs font-medium transition ${reportFilterType === 'custom' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>自訂</button>
+            <button onClick={() => { setReportFilterType('month'); setReportStartDate('2026-06-30'); setReportEndDate(getTodayStr()); }} className={`px-3 py-1.5 rounded-xl text-xs font-medium ${reportFilterType === 'month' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>本月</button>
+            <button onClick={() => setReportFilterType('custom')} className={`px-3 py-1.5 rounded-xl text-xs font-medium ${reportFilterType === 'custom' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>自訂</button>
             <input type="date" value={reportStartDate} onChange={(e) => setReportStartDate(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-2 py-1 text-xs" />
             <span>~</span>
             <input type="date" value={reportEndDate} onChange={(e) => setReportEndDate(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-2 py-1 text-xs" />
           </div>
         </div>
 
-        <div className="grid grid-cols-5 gap-4">
+        {/* 移除佣金，改為 4 個欄位均分 */}
+        <div className="grid grid-cols-4 gap-4">
           <div className="p-4 bg-slate-50 rounded-2xl text-center space-y-1">
             <span className="text-xs text-slate-500">銷售金額</span>
-            <p className="text-lg font-mono font-bold text-slate-800">${reportSalesTotal.toLocaleString()}</p>
-          </div>
-          <div className="p-4 bg-slate-50 rounded-2xl text-center space-y-1">
-            <span className="text-xs text-slate-500">佣金</span>
-            <p className="text-lg font-mono font-bold text-slate-800">${reportCommissionTotal.toLocaleString()}</p>
+            <p className="text-lg font-mono font-bold text-slate-800">${rangeSalesTotal.toLocaleString()}</p>
           </div>
           <div className="p-4 bg-slate-50 rounded-2xl text-center space-y-1">
             <span className="text-xs text-slate-500">雜收</span>
-            <p className="text-lg font-mono font-bold text-slate-800">${reportOtherIncomeTotal.toLocaleString()}</p>
+            <p className="text-lg font-mono font-bold text-slate-800">${rangeOtherIncome.toLocaleString()}</p>
           </div>
           <div className="p-4 bg-slate-50 rounded-2xl text-center space-y-1">
             <span className="text-xs text-slate-500">雜支</span>
-            <p className="text-lg font-mono font-bold text-rose-500">-${reportExpenseTotal.toLocaleString()}</p>
+            <p className="text-lg font-mono font-bold text-rose-500">-${rangeExpenseTotal.toLocaleString()}</p>
           </div>
           <div className="p-4 bg-emerald-50/60 border border-emerald-100 rounded-2xl text-center space-y-1">
             <span className="text-xs text-emerald-700 font-medium">盈餘</span>
-            <p className="text-lg font-mono font-bold text-emerald-600">${reportNetProfit.toLocaleString()}</p>
+            <p className="text-lg font-mono font-bold text-emerald-600">${rangeNetProfit.toLocaleString()}</p>
           </div>
         </div>
       </div>
@@ -429,16 +355,16 @@ export default function ReportsPage() {
           <div className="bg-white rounded-3xl p-6 w-[450px] space-y-4 shadow-2xl">
             <div className="flex justify-between items-center border-b pb-3">
               <h3 className="text-base font-bold text-slate-800">新增支出紀錄</h3>
-              <button onClick={() => setShowExpenseModal(false)} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+              <button onClick={() => setShowExpenseModal(false)} className="text-slate-400">✕</button>
             </div>
             <div className="space-y-3 text-xs">
               <div>
-                <label className="text-slate-500 font-medium">支出類別</label>
-                <input type="text" value={expenseCategory} onChange={(e) => setExpenseCategory(e.target.value)} className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-700" />
+                <label className="text-slate-500">支出類別</label>
+                <input type="text" value={expenseCategory} onChange={(e) => setExpenseCategory(e.target.value)} className="w-full mt-1 bg-slate-50 border rounded-xl p-2.5" />
               </div>
               <div>
-                <label className="text-slate-500 font-medium">支付方式</label>
-                <select value={expensePayment} onChange={(e) => setExpensePayment(e.target.value)} className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-700">
+                <label className="text-slate-500">支付方式</label>
+                <select value={expensePayment} onChange={(e) => setExpensePayment(e.target.value)} className="w-full mt-1 bg-slate-50 border rounded-xl p-2.5">
                   <option value="現金">現金</option>
                   <option value="刷卡">刷卡</option>
                   <option value="刷卡/分期">刷卡/分期</option>
@@ -448,17 +374,17 @@ export default function ReportsPage() {
                 </select>
               </div>
               <div>
-                <label className="text-slate-500 font-medium">金額</label>
-                <input type="number" value={expenseAmount || ''} onChange={(e) => setExpenseAmount(Number(e.target.value))} placeholder="請輸入金額" className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-mono text-slate-700" />
+                <label className="text-slate-500">金額</label>
+                <input type="number" value={expenseAmount || ''} onChange={(e) => setExpenseAmount(Number(e.target.value))} className="w-full mt-1 bg-slate-50 border rounded-xl p-2.5 font-mono" />
               </div>
               <div>
-                <label className="text-slate-500 font-medium">備註說明</label>
-                <input type="text" value={expenseRemark} onChange={(e) => setExpenseRemark(e.target.value)} placeholder="例如：購買零件" className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-700" />
+                <label className="text-slate-500">備註說明</label>
+                <input type="text" value={expenseRemark} onChange={(e) => setExpenseRemark(e.target.value)} className="w-full mt-1 bg-slate-50 border rounded-xl p-2.5" />
               </div>
             </div>
             <div className="flex justify-end gap-3 pt-3 border-t">
-              <button onClick={() => setShowExpenseModal(false)} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-medium">取消</button>
-              <button onClick={handleAddExpense} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700">確定新增</button>
+              <button onClick={() => setShowExpenseModal(false)} className="px-4 py-2 bg-slate-100 rounded-xl text-xs">取消</button>
+              <button onClick={handleAddExpense} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold">確定新增</button>
             </div>
           </div>
         </div>
@@ -469,16 +395,16 @@ export default function ReportsPage() {
           <div className="bg-white rounded-3xl p-6 w-[450px] space-y-4 shadow-2xl">
             <div className="flex justify-between items-center border-b pb-3">
               <h3 className="text-base font-bold text-slate-800">新增雜收紀錄</h3>
-              <button onClick={() => setShowIncomeModal(false)} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+              <button onClick={() => setShowIncomeModal(false)} className="text-slate-400">✕</button>
             </div>
             <div className="space-y-3 text-xs">
               <div>
-                <label className="text-slate-500 font-medium">收入類別</label>
-                <input type="text" value={incomeCategory} onChange={(e) => setIncomeCategory(e.target.value)} className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-700" />
+                <label className="text-slate-500">收入類別</label>
+                <input type="text" value={incomeCategory} onChange={(e) => setIncomeCategory(e.target.value)} className="w-full mt-1 bg-slate-50 border rounded-xl p-2.5" />
               </div>
               <div>
-                <label className="text-slate-500 font-medium">收款方式</label>
-                <select value={incomePayment} onChange={(e) => setIncomePayment(e.target.value)} className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-700">
+                <label className="text-slate-500">收款方式</label>
+                <select value={incomePayment} onChange={(e) => setIncomePayment(e.target.value)} className="w-full mt-1 bg-slate-50 border rounded-xl p-2.5">
                   <option value="現金">現金</option>
                   <option value="刷卡">刷卡</option>
                   <option value="刷卡/分期">刷卡/分期</option>
@@ -488,17 +414,17 @@ export default function ReportsPage() {
                 </select>
               </div>
               <div>
-                <label className="text-slate-500 font-medium">金額</label>
-                <input type="number" value={incomeAmount || ''} onChange={(e) => setIncomeAmount(Number(e.target.value))} placeholder="請輸入金額" className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-mono text-slate-700" />
+                <label className="text-slate-500">金額</label>
+                <input type="number" value={incomeAmount || ''} onChange={(e) => setIncomeAmount(Number(e.target.value))} className="w-full mt-1 bg-slate-50 border rounded-xl p-2.5 font-mono" />
               </div>
               <div>
-                <label className="text-slate-500 font-medium">備註說明</label>
-                <input type="text" value={incomeRemark} onChange={(e) => setIncomeRemark(e.target.value)} placeholder="例如：貼膜收入" className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-700" />
+                <label className="text-slate-500">備註說明</label>
+                <input type="text" value={incomeRemark} onChange={(e) => setIncomeRemark(e.target.value)} className="w-full mt-1 bg-slate-50 border rounded-xl p-2.5" />
               </div>
             </div>
             <div className="flex justify-end gap-3 pt-3 border-t">
-              <button onClick={() => setShowIncomeModal(false)} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-medium">取消</button>
-              <button onClick={handleAddIncome} className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800">確定新增</button>
+              <button onClick={() => setShowIncomeModal(false)} className="px-4 py-2 bg-slate-100 rounded-xl text-xs">取消</button>
+              <button onClick={handleAddIncome} className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold">確定新增</button>
             </div>
           </div>
         </div>
@@ -509,23 +435,19 @@ export default function ReportsPage() {
           <div className="bg-white rounded-3xl p-6 w-[700px] max-h-[80vh] overflow-y-auto space-y-4 shadow-2xl">
             <div className="flex justify-between items-center border-b pb-3">
               <h3 className="text-base font-bold text-slate-800">銷售與維修收入明細</h3>
-              <button onClick={() => setShowSalesDetailModal(false)} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+              <button onClick={() => setShowSalesDetailModal(false)} className="text-slate-400">✕</button>
             </div>
             <div className="space-y-2">
-              {currentDayRepairs.map((r, i) => (
-                <div key={`r-${i}`} className="grid grid-cols-12 items-center bg-slate-50 rounded-2xl p-3 text-xs border border-slate-100">
-                  <span className="col-span-3 text-slate-700 font-mono font-medium">{r.repairNo}</span>
-                  <span className="col-span-7 text-slate-800">{r.deviceModel} - {r.faultDesc} ({r.paymentMethod})</span>
-                  <span className="col-span-2 text-right font-mono font-bold text-emerald-600">+${r.price.toLocaleString()}</span>
+              {daySalesAndRepairs.map((r, i) => (
+                <div key={i} className="grid grid-cols-12 items-center bg-slate-50 rounded-2xl p-3 text-xs border border-slate-100">
+                  <span className="col-span-3 text-slate-700 font-mono font-medium">{r.title}</span>
+                  <span className="col-span-7 text-slate-800">支付方式：{r.paymentMethod} ({r.type === 'repair' ? '維修' : '銷售'})</span>
+                  <span className="col-span-2 text-right font-mono font-bold text-emerald-600">+${r.amount.toLocaleString()}</span>
                 </div>
               ))}
-              {currentDaySales.map((s, i) => (
-                <div key={`s-${i}`} className="grid grid-cols-12 items-center bg-slate-50 rounded-2xl p-3 text-xs border border-slate-100">
-                  <span className="col-span-3 text-slate-700 font-mono font-medium">{s.orderNo}</span>
-                  <span className="col-span-7 text-slate-800">商品銷售</span>
-                  <span className="col-span-2 text-right font-mono font-bold text-emerald-600">+${s.totalAmount.toLocaleString()}</span>
-                </div>
-              ))}
+              {daySalesAndRepairs.length === 0 && (
+                <p className="text-center text-slate-400 text-xs py-4">本日尚無銷售與維修記錄</p>
+              )}
             </div>
           </div>
         </div>
