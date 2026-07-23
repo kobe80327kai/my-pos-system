@@ -63,53 +63,64 @@ export default function ControlPage() {
 
   const [activeTab, setActiveTab] = useState<'checkout' | 'records' | 'reports'>('checkout');
 
-  // 初始化銷售紀錄
+  // 安全讀取銷售紀錄
   const [salesRecords, setSalesRecords] = useState<SaleRecord[]>(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('pos_sales_records');
-      if (saved) {
-        try { return JSON.parse(saved); } catch (e) { console.error(e); }
-      }
+      try {
+        const saved = localStorage.getItem('pos_sales_records_v2');
+        if (saved) return JSON.parse(saved);
+      } catch (e) { console.error(e); }
     }
     return [];
   });
 
-  // 初始化客戶清單 (自動從 localStorage 讀取)
+  // 安全讀取並合併客戶清單（保證使用者新增的不會不見）
   const [customers, setCustomers] = useState<Customer[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('pos_customers');
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-        } catch (e) { console.error(e); }
-      }
-    }
-    return [
+    const defaultCusts: Customer[] = [
       { id: 'c1', name: '王小明', phone: '0912345678', type: '個人貴賓' },
       { id: 'c2', name: '林美麗', phone: '0987654321', type: '個人貴賓' },
       { id: 'c3', name: '測試客戶', phone: '0900123456', type: '個人貴賓' }
     ];
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('pos_customers_v2');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            // 合併預設與自訂，確保不漏掉任何一筆
+            const map = new Map();
+            [...defaultCusts, ...parsed].forEach(c => map.set(c.id, c));
+            return Array.from(map.values());
+          }
+        }
+      } catch (e) { console.error(e); }
+    }
+    return defaultCusts;
   });
 
-  // 初始化方案清單 (自動從 localStorage 讀取)
+  // 安全讀取並合併方案清單
   const [plans, setPlans] = useState<PlanItem[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('pos_plans');
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-        } catch (e) { console.error(e); }
-      }
-    }
-    return [
+    const defaultPlans: PlanItem[] = [
       { id: 'pl1', name: 'NP799 5G 專案', telecom: '中華電信', monthlyFee: 799, rebate: 3500 },
       { id: 'pl2', name: '中華電信 5G 1399 (30期)', telecom: '中華電信', monthlyFee: 1399, rebate: 5000 },
       { id: 'pl3', name: '台灣大哥大 4G 688 (24期)', telecom: '台灣大哥大', monthlyFee: 688, rebate: 3000 },
       { id: 'pl4', name: '遠傳電信 5G 999 (24期)', telecom: '遠傳電信', monthlyFee: 999, rebate: 4000 },
       { id: 'pl5', name: '699 專案', telecom: '通用', monthlyFee: 699, rebate: 2500 }
     ];
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('pos_plans_v2');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const map = new Map();
+            [...defaultPlans, ...parsed].forEach(p => map.set(p.id, p));
+            return Array.from(map.values());
+          }
+        }
+      } catch (e) { console.error(e); }
+    }
+    return defaultPlans;
   });
 
   const products: Product[] = [
@@ -118,22 +129,22 @@ export default function ControlPage() {
     { id: 'p3', name: 'iPhone 15 128G', price: 25900, cost: 23000, stock: 3, category: '手機' },
   ];
 
-  // 當客戶或方案變動時，立刻存入 localStorage
+  // 即時同步至 localStorage
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('pos_customers', JSON.stringify(customers));
+      localStorage.setItem('pos_customers_v2', JSON.stringify(customers));
     }
   }, [customers]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('pos_plans', JSON.stringify(plans));
+      localStorage.setItem('pos_plans_v2', JSON.stringify(plans));
     }
   }, [plans]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('pos_sales_records', JSON.stringify(salesRecords));
+      localStorage.setItem('pos_sales_records_v2', JSON.stringify(salesRecords));
     }
   }, [salesRecords]);
 
@@ -142,7 +153,7 @@ export default function ControlPage() {
   const [customerSearch, setCustomerSearch] = useState('');
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
   const [planSearch, setPlanSearch] = useState('');
-  const [payments, setPayments] = useState<PaymentEntry[]>(ownerPayments => [
+  const [payments, setPayments] = useState<PaymentEntry[]>([
     { id: 'pay-1', method: '現金', installments: '3' }
   ]);
 
@@ -225,7 +236,7 @@ export default function ControlPage() {
       return;
     }
     const newC: Customer = { id: `c-${Date.now()}`, name: newCustName, phone: newCustPhone, type: '個人貴賓' };
-    const updated = [...customers, newC];
+    const updated = [newC, ...customers];
     setCustomers(updated);
     setCustomerSearch(`${newC.name} (${newC.phone})`);
     setNewCustName('');
@@ -344,14 +355,14 @@ export default function ControlPage() {
     !productSearch || p.name.includes(productSearch) || p.id.includes(productSearch)
   );
 
-  // 模糊搜尋客戶
+  // 客戶模糊搜尋
   const filteredCustomers = customers.filter(c => {
     if (!customerSearch) return true;
     const keyword = customerSearch.trim().toLowerCase();
     return c.name.toLowerCase().includes(keyword) || c.phone.includes(keyword);
   });
 
-  // 模糊搜尋方案
+  // 方案模糊搜尋
   const filteredPlans = plans.filter(pl => {
     if (!planSearch) return true;
     const keyword = planSearch.trim().toLowerCase();
