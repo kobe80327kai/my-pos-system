@@ -80,24 +80,25 @@ export default function ControlPage() {
     return [];
   });
 
+  // 強化客戶資料讀取：同時對齊多種可能的 localStorage Key，確保抓得到客戶管理頁面的資料
   const [customers, setCustomers] = useState<Customer[]>(() => {
-    const defaultCusts: Customer[] = [
-      { id: 'CST00001', name: '林活揚', phone: '0956-096936', type: '舊客', gender: '男' }
-    ];
     if (typeof window !== 'undefined') {
       try {
-        const saved = localStorage.getItem('pos_customers_v3');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            const map = new Map();
-            [...defaultCusts, ...parsed].forEach(c => map.set(c.id, c));
-            return Array.from(map.values());
+        const keys = ['pos_customers_v3', 'pos_customers', 'customers', 'crm_customers'];
+        for (const key of keys) {
+          const saved = localStorage.getItem(key);
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              return parsed;
+            }
           }
         }
       } catch (e) { console.error(e); }
     }
-    return defaultCusts;
+    return [
+      { id: 'CST00001', name: '林活揚', phone: '0956-096936', type: '舊客', gender: '男' }
+    ];
   });
 
   const [plans, setPlans] = useState<PlanItem[]>(() => {
@@ -137,6 +138,28 @@ export default function ControlPage() {
     { id: 'p2', name: 'AIR6皮套', price: 200, cost: 70, stock: 8, category: '配件' },
     { id: 'p3', name: 'iPhone 15 128G', price: 25900, cost: 23000, stock: 3, category: '手機' },
   ];
+
+  // 定時自動同步客戶資料（每秒檢查一次 localStorage，確保客戶管理新增的會員能即時同步進來）
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (typeof window !== 'undefined') {
+        const keys = ['pos_customers_v3', 'pos_customers', 'customers', 'crm_customers'];
+        for (const key of keys) {
+          const saved = localStorage.getItem(key);
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setCustomers(parsed);
+                break;
+              }
+            } catch (e) { console.error(e); }
+          }
+        }
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -243,7 +266,11 @@ export default function ControlPage() {
     }
     const newId = `CST${String(customers.length + 1).padStart(5, '0')}`;
     const newC: Customer = { id: newId, name: newCustName, phone: newCustPhone, type: '舊客', gender: '男' };
-    setCustomers([newC, ...customers]);
+    const updated = [newC, ...customers];
+    setCustomers(updated);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pos_customers_v3', JSON.stringify(updated));
+    }
     setCustomerSearch(`${newC.name} (${newC.phone})`);
     setNewCustName('');
     setNewCustPhone('');
