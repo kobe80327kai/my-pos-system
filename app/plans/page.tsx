@@ -17,27 +17,12 @@ interface Plan {
   actualCommission: number;
 }
 
-const LOCAL_STORAGE_KEY = 'my_pos_system_plans_data';
-
-const DEFAULT_PLANS: Plan[] = [
-  {
-    id: '1',
-    code: 'PLN0001',
-    name: 'S',
-    carrier: '遠傳電信',
-    type: '新申辦',
-    network: '5G',
-    monthlyFee: 699,
-    contractPeriod: 24,
-    prepayment: 0,
-    storeCommission: 800,
-    actualCommission: 1200,
-  },
-];
+// 💡 修正 1：將 Key 統一改為 'pos_plans'，確保與結帳頁面一致
+const LOCAL_STORAGE_KEY = 'pos_plans';
 
 export default function PlansPage() {
   const [plans, setPlans] = useState<Plan[]>(() => {
-    // 初始化時先從 localStorage 讀取，若沒有則使用預設值
+    // 初始化時從 localStorage 讀取統一的 'pos_plans'
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
       if (saved) {
@@ -48,7 +33,8 @@ export default function PlansPage() {
         }
       }
     }
-    return DEFAULT_PLANS;
+    // 💡 修正 2：若沒有資料，回傳空陣列，避免舊的預設方案殘留
+    return [];
   });
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -73,7 +59,7 @@ export default function PlansPage() {
     actualCommission: 1200,
   });
 
-  // 當 plans 改變時，同步儲存到 localStorage
+  // 當 plans 改變時，同步儲存到統一的 localStorage key
   useEffect(() => {
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(plans));
   }, [plans]);
@@ -313,7 +299,6 @@ export default function PlansPage() {
                 <td className="p-4 font-mono font-bold text-blue-600">${plan.storeCommission}</td>
                 <td className="p-4 font-mono font-bold text-amber-600">${plan.actualCommission.toLocaleString()}</td>
                 <td className="p-4 text-center flex items-center justify-center gap-2">
-                  {/* ✏️ 點擊觸發編輯 */}
                   <button
                     onClick={() => handleEditClick(plan)}
                     className="p-1.5 text-slate-400 hover:text-amber-500 hover:bg-amber-50 rounded-lg transition cursor-pointer"
@@ -321,7 +306,6 @@ export default function PlansPage() {
                   >
                     ✏️
                   </button>
-                  {/* 🗑️ 點擊觸發刪除 */}
                   <button
                     onClick={() => handleDelete(plan.id)}
                     className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition cursor-pointer"
