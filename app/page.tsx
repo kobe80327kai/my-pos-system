@@ -58,7 +58,7 @@ export default function ControlPage() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
 
-  const [activeTab, setActiveTab] = useState<'checkout' | 'records' | 'reports' | 'plans' | 'customers'>('checkout');
+  const [activeTab, setActiveTab] = useState<'checkout' | 'records' | 'reports'>('checkout');
 
   const [salesRecords, setSalesRecords] = useState<SaleRecord[]>(() => {
     if (typeof window !== 'undefined') {
@@ -68,7 +68,7 @@ export default function ControlPage() {
     return [];
   });
 
-  // 客戶資料庫 (完整與客戶管理連動)
+  // 從 localStorage 讀取「客戶管理」的資料（若無則給預設值）
   const [customers, setCustomers] = useState<Customer[]>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('pos_customers');
@@ -80,7 +80,7 @@ export default function ControlPage() {
     ];
   });
 
-  // 方案資料庫 (完整與方案管理連動)
+  // 從 localStorage 讀取「方案管理」的資料（若無則給預設值）
   const [plans, setPlans] = useState<PlanItem[]>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('pos_plans');
@@ -99,26 +99,31 @@ export default function ControlPage() {
     { id: 'p3', name: 'iPhone 15 128G', price: 25900, cost: 23000, stock: 3, category: '手機' },
   ];
 
-  // 自動同步至 localStorage
   useEffect(() => {
     localStorage.setItem('pos_sales_records', JSON.stringify(salesRecords));
   }, [salesRecords]);
 
+  // 監聽並自動同步其他頁面（客戶管理 / 方案管理）可能更新的資料
   useEffect(() => {
-    localStorage.setItem('pos_customers', JSON.stringify(customers));
-  }, [customers]);
-
-  useEffect(() => {
-    localStorage.setItem('pos_plans', JSON.stringify(plans));
-  }, [plans]);
+    const handleStorageChange = () => {
+      const savedCust = localStorage.getItem('pos_customers');
+      if (savedCust) setCustomers(JSON.parse(savedCust));
+      const savedPlans = localStorage.getItem('pos_plans');
+      if (savedPlans) setPlans(JSON.parse(savedPlans));
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   // 銷貨結帳相關狀態
   const [cart, setCart] = useState<CartItem[]>([]);
   const [productSearch, setProductSearch] = useState('');
   
+  // 客戶搜尋與選擇狀態
   const [customerSearch, setCustomerSearch] = useState('');
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
 
+  // 方案搜尋狀態
   const [planSearch, setPlanSearch] = useState('');
 
   // 多組付款方式狀態
@@ -137,15 +142,9 @@ export default function ControlPage() {
   const [customPrice, setCustomPrice] = useState<number>(0);
   const [customCost, setCustomCost] = useState<number>(0);
 
-  // 新增客戶表單 (結帳快速建立用)
+  // 快速建立會員表單
   const [newCustName, setNewCustName] = useState('');
   const [newCustPhone, setNewCustPhone] = useState('');
-
-  // 方案管理頁面用的新增表單狀態
-  const [newPlanName, setNewPlanName] = useState('');
-  const [newPlanTelecom, setNewPlanTelecom] = useState('中華電信');
-  const [newPlanFee, setNewPlanFee] = useState<number>(1399);
-  const [newPlanRebate, setNewPlanRebate] = useState<number>(5000);
 
   const addToCart = (item: Product) => {
     setCart((prev) => {
@@ -163,8 +162,8 @@ export default function ControlPage() {
       { 
         id: `plan-${plan.id}-${Date.now()}`, 
         name: `[方案] ${plan.name}`, 
-        price: 0, 
-        cost: -plan.rebate, 
+        price: 0, // 選取方案不代入月租，金額預設為0可手動修改
+        cost: -plan.rebate, // 佣金自動計入毛利
         quantity: 1, 
         type: 'plan' 
       }
@@ -200,28 +199,13 @@ export default function ControlPage() {
       return;
     }
     const newC: Customer = { id: `c-${Date.now()}`, name: newCustName, phone: newCustPhone };
-    setCustomers([...customers, newC]);
+    const updatedCustomers = [...customers, newC];
+    setCustomers(updatedCustomers);
+    localStorage.setItem('pos_customers', JSON.stringify(updatedCustomers));
     setCustomerSearch(`${newC.name} (${newC.phone})`);
     setNewCustName('');
     setNewCustPhone('');
     setIsCustomerModalOpen(false);
-  };
-
-  const handleCreatePlanFromManage = () => {
-    if (!newPlanName) {
-      alert('請輸入方案名稱');
-      return;
-    }
-    const newP: PlanItem = {
-      id: `pl-${Date.now()}`,
-      name: newPlanName,
-      telecom: newPlanTelecom,
-      monthlyFee: Number(newPlanFee) || 0,
-      rebate: Number(newPlanRebate) || 0
-    };
-    setPlans([...plans, newP]);
-    setNewPlanName('');
-    alert('成功新增方案！');
   };
 
   const getSingleFeeRate = (method: string, inst: string) => {
@@ -275,10 +259,12 @@ export default function ControlPage() {
     !productSearch || p.name.includes(productSearch) || p.id.includes(productSearch)
   );
 
+  // 對應客戶管理的資料進行搜尋
   const filteredCustomers = customers.filter(c => 
-    !customerSearch || c.name.includes(customerSearch) || c.phone.includes(customerSearch)
+    c.name.includes(customerSearch) || c.phone.includes(customerSearch)
   );
 
+  // 對應方案管理的資料進行搜尋
   const filteredPlans = plans.filter(pl =>
     !planSearch || pl.name.includes(planSearch) || pl.telecom.includes(planSearch)
   );
@@ -287,13 +273,11 @@ export default function ControlPage() {
     <div className="p-8 space-y-6 w-full relative">
       {/* 頂部快速切換列 */}
       <div className="flex justify-between items-center bg-white px-5 py-3 rounded-2xl shadow-sm border border-slate-200/60">
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
           <span className="text-xs text-slate-400 font-medium mr-2">快速切換：</span>
-          <button onClick={() => setActiveTab('checkout')} className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 ${activeTab === 'checkout' ? 'bg-slate-100 text-slate-800 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>🛒 銷貨結帳</button>
-          <button onClick={() => setActiveTab('records')} className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 ${activeTab === 'records' ? 'bg-slate-100 text-slate-800 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>📄 銷售紀錄</button>
-          <button onClick={() => setActiveTab('plans')} className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 ${activeTab === 'plans' ? 'bg-slate-100 text-slate-800 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>📑 方案管理</button>
-          <button onClick={() => setActiveTab('customers')} className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 ${activeTab === 'customers' ? 'bg-slate-100 text-slate-800 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>👥 客戶管理</button>
-          <button onClick={() => setActiveTab('reports')} className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 ${activeTab === 'reports' ? 'bg-slate-100 text-slate-800 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>📊 業績報表</button>
+          <button onClick={() => setActiveTab('checkout')} className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${activeTab === 'checkout' ? 'bg-slate-100 text-slate-800 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>🛒 銷貨結帳</button>
+          <button onClick={() => setActiveTab('records')} className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${activeTab === 'records' ? 'bg-slate-100 text-slate-800 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>📄 銷售紀錄</button>
+          <button onClick={() => setActiveTab('reports')} className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${activeTab === 'reports' ? 'bg-slate-100 text-slate-800 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>📊 業績報表</button>
         </div>
         <div className="text-xs text-slate-600">目前身份：<span className="font-bold text-slate-800">管理員</span></div>
       </div>
@@ -359,7 +343,7 @@ export default function ControlPage() {
                 <button onClick={() => setCart([])} className="text-[10px] text-slate-400 hover:text-rose-600">清空</button>
               </div>
 
-              {/* 客戶搜尋與選擇 (與客戶管理完整連動) */}
+              {/* 客戶搜尋與選擇 (與客戶管理資料完全連動) */}
               <div className="space-y-1 relative">
                 <div className="flex justify-between items-center text-[10px] text-slate-400">
                   <span>客戶 (選填，個人貴賓可不選)</span>
@@ -433,6 +417,7 @@ export default function ControlPage() {
                 )}
               </div>
 
+              {/* 自訂項目按鈕 */}
               <button 
                 onClick={() => setIsCustomModalOpen(true)}
                 className="w-full py-2.5 bg-slate-50 hover:bg-slate-100 border border-dashed border-slate-300 rounded-xl text-xs font-bold text-slate-600 transition flex items-center justify-center gap-1.5"
@@ -564,64 +549,7 @@ export default function ControlPage() {
         </div>
       )}
 
-      {/* 3. 方案管理畫面 (可在此新增方案，銷貨結帳處會自動同步搜尋) */}
-      {activeTab === 'plans' && (
-        <div className="space-y-4">
-          <h1 className="text-xl font-bold text-slate-800">方案管理</h1>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white rounded-3xl p-6 shadow-sm border space-y-3 h-fit">
-              <h3 className="text-xs font-bold text-slate-800">新增電信方案</h3>
-              <input type="text" value={newPlanName} onChange={(e) => setNewPlanName(e.target.value)} placeholder="方案名稱 (例: 中華 5G 1399)" className="w-full bg-slate-50 border rounded-xl px-3 py-2 text-xs" />
-              <select value={newPlanTelecom} onChange={(e) => setNewPlanTelecom(e.target.value)} className="w-full bg-slate-50 border rounded-xl px-3 py-2 text-xs">
-                <option value="中華電信">中華電信</option>
-                <option value="台灣大哥大">台灣大哥大</option>
-                <option value="遠傳電信">遠傳電信</option>
-                <option value="台灣之星/亞太">台灣之星/亞太</option>
-              </select>
-              <input type="number" value={newPlanFee} onChange={(e) => setNewPlanFee(Number(e.target.value))} placeholder="月租費" className="w-full bg-slate-50 border rounded-xl px-3 py-2 text-xs font-mono" />
-              <input type="number" value={newPlanRebate} onChange={(e) => setNewPlanRebate(Number(e.target.value))} placeholder="佣金" className="w-full bg-slate-50 border rounded-xl px-3 py-2 text-xs font-mono" />
-              <button onClick={handleCreatePlanFromManage} className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold">確認新增方案</button>
-            </div>
-            <div className="md:col-span-2 bg-white rounded-3xl p-6 shadow-sm border space-y-3">
-              <h3 className="text-xs font-bold text-slate-800">現有方案列表 (共 {plans.length} 筆)</h3>
-              <div className="space-y-2 max-h-96 overflow-y-auto">
-                {plans.map(pl => (
-                  <div key={pl.id} className="p-3.5 border rounded-2xl flex justify-between items-center text-xs">
-                    <div>
-                      <p className="font-bold text-slate-800">{pl.name}</p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">電信: {pl.telecom} | 月租: ${pl.monthlyFee} | 佣金: ${pl.rebate}</p>
-                    </div>
-                    <button onClick={() => setPlans(plans.filter(p => p.id !== pl.id))} className="text-slate-400 hover:text-rose-600">刪除</button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 4. 客戶管理畫面 (可在此管理客戶，銷貨結帳處會自動同步搜尋) */}
-      {activeTab === 'customers' && (
-        <div className="space-y-4">
-          <h1 className="text-xl font-bold text-slate-800">客戶管理</h1>
-          <div className="bg-white rounded-3xl p-6 shadow-sm border space-y-4">
-            <h3 className="text-xs font-bold text-slate-800">現有客戶列表 (共 {customers.length} 筆)</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {customers.map(c => (
-                <div key={c.id} className="p-3.5 border rounded-2xl flex justify-between items-center text-xs bg-slate-50">
-                  <div>
-                    <p className="font-bold text-slate-800">{c.name}</p>
-                    <p className="text-[10px] text-slate-500 font-mono mt-0.5">{c.phone}</p>
-                  </div>
-                  <button onClick={() => setCustomers(customers.filter(item => item.id !== c.id))} className="text-slate-400 hover:text-rose-600">刪除</button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 5. 業績報表畫面 */}
+      {/* 3. 業績報表畫面 */}
       {activeTab === 'reports' && (
         <div className="space-y-4">
           <h1 className="text-xl font-bold text-slate-800">業績報表</h1>
@@ -632,7 +560,7 @@ export default function ControlPage() {
         </div>
       )}
 
-      {/* 彈跳視窗：選擇電信方案 (即時連動方案管理資料) */}
+      {/* 彈跳視窗：選擇電信方案 (搜尋時直接對應方案管理的資料) */}
       {isPlanModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-6 w-full max-w-lg space-y-4 shadow-xl">
@@ -702,7 +630,7 @@ export default function ControlPage() {
         </div>
       )}
 
-      {/* 彈跳視窗：快速建立會員 (即時連動客戶管理資料) */}
+      {/* 彈跳視窗：快速建立會員 */}
       {isCustomerModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-6 w-full max-w-sm space-y-4 shadow-xl">
