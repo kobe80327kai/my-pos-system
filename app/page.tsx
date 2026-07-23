@@ -31,6 +31,7 @@ interface SaleRecord {
   orderNo: string;
   date: string;
   customerName: string;
+  customerType: string;
   salesperson: string;
   items: { name: string; price: number; cost: number; quantity: number }[];
   totalAmount: number;
@@ -42,6 +43,7 @@ interface Customer {
   id: string;
   name: string;
   phone: string;
+  type?: string;
 }
 
 interface PlanItem {
@@ -60,12 +62,26 @@ export default function ControlPage() {
 
   const [activeTab, setActiveTab] = useState<'checkout' | 'records' | 'reports'>('checkout');
 
+  // 銷售紀錄初始資料
   const [salesRecords, setSalesRecords] = useState<SaleRecord[]>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('pos_sales_records');
       if (saved) return JSON.parse(saved);
     }
-    return [];
+    return [
+      {
+        id: 'sr-1',
+        orderNo: 'SD260723119',
+        date: '2026-07-23',
+        customerName: '個人貴賓',
+        customerType: '個人貴賓',
+        salesperson: '管理員',
+        items: [{ name: '滿版保貼', price: 200, cost: 50, quantity: 1 }],
+        totalAmount: 200,
+        profit: 150,
+        paymentInfo: '現金'
+      }
+    ];
   });
 
   const [customers, setCustomers] = useState<Customer[]>(() => {
@@ -74,8 +90,8 @@ export default function ControlPage() {
       if (saved) return JSON.parse(saved);
     }
     return [
-      { id: 'c1', name: '林活揚', phone: '0956-096936' },
-      { id: 'c2', name: '王小明', phone: '0912-345678' }
+      { id: 'c1', name: '林活揚', phone: '0956-096936', type: '個人貴賓' },
+      { id: 'c2', name: '王小明', phone: '0912-345678', type: '個人貴賓' }
     ];
   });
 
@@ -101,30 +117,29 @@ export default function ControlPage() {
     localStorage.setItem('pos_sales_records', JSON.stringify(salesRecords));
   }, [salesRecords]);
 
-  useEffect(() => {
-    const handleStorageChange = () => {
-      const savedCust = localStorage.getItem('pos_customers');
-      if (savedCust) setCustomers(JSON.parse(savedCust));
-      const savedPlans = localStorage.getItem('pos_plans');
-      if (savedPlans) setPlans(JSON.parse(savedPlans));
-    };
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
-
+  // 結帳區狀態
   const [cart, setCart] = useState<CartItem[]>([]);
   const [productSearch, setProductSearch] = useState('');
-  
-  // 客戶搜尋預設清空，不帶入預設客戶
-  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerSearch, setCustomerSearch] = useState(''); // 預設完全空白
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
-
   const [planSearch, setPlanSearch] = useState('');
-
   const [payments, setPayments] = useState<PaymentEntry[]>([
     { id: 'pay-1', method: '現金', installments: '3' }
   ]);
 
+  // 銷售紀錄篩選與檢視狀態
+  const [recordSearch, setRecordSearch] = useState('');
+  const [filterSalesperson, setFilterSalesperson] = useState('全部門市人員');
+  const [filterCustomerType, setFilterCustomerType] = useState('全部客戶類型');
+  const [dateStart, setDateStart] = useState(getTodayStr());
+  const [dateEnd, setDateEnd] = useState(getTodayStr());
+  const [dateFilterMode, setDateFilterMode] = useState<'today' | 'week' | 'month' | 'all' | 'custom'>('today');
+  const [expandedRecordIds, setExpandedRecordIds] = useState<string[]>([]);
+  
+  // 修改紀錄彈窗狀態
+  const [editingRecord, setEditingRecord] = useState<SaleRecord | null>(null);
+
+  // 彈窗控制
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
@@ -153,8 +168,8 @@ export default function ControlPage() {
       { 
         id: `plan-${plan.id}-${Date.now()}`, 
         name: `[方案] ${plan.name}`, 
-        price: 0, // 確保初始售價為 0 數字
-        cost: -Number(plan.rebate || 0), // 佣金自動計入毛利，確保為數值
+        price: 0, 
+        cost: -Number(plan.rebate || 0), // 方案佣金正確代入負成本，使毛利增加
         quantity: 1, 
         type: 'plan' 
       }
@@ -189,7 +204,7 @@ export default function ControlPage() {
       alert('請填寫客戶姓名與電話');
       return;
     }
-    const newC: Customer = { id: `c-${Date.now()}`, name: newCustName, phone: newCustPhone };
+    const newC: Customer = { id: `c-${Date.now()}`, name: newCustName, phone: newCustPhone, type: '個人貴賓' };
     const updatedCustomers = [...customers, newC];
     setCustomers(updatedCustomers);
     localStorage.setItem('pos_customers', JSON.stringify(updatedCustomers));
@@ -219,7 +234,6 @@ export default function ControlPage() {
 
   const totalAmountWithFee = subtotal + totalFeeAmount;
   
-  // 修正毛利計算防呆，確保減法運算不會出現 NaN
   const baseProfit = cart.reduce((sum, item) => {
     const pPrice = Number(item.price) || 0;
     const pCost = Number(item.cost) || 0;
@@ -241,6 +255,7 @@ export default function ControlPage() {
       orderNo,
       date: getTodayStr(),
       customerName: customerSearch ? customerSearch.split(' ')[0] : '散客',
+      customerType: '個人貴賓',
       salesperson: '管理員',
       items: cart.map(i => ({ name: i.name, price: i.price, cost: i.cost, quantity: i.quantity })),
       totalAmount: totalAmountWithFee,
@@ -251,9 +266,55 @@ export default function ControlPage() {
     setSalesRecords([newRecord, ...salesRecords]);
     alert(`結帳成功！單號：${orderNo}`);
     
-    // 結帳成功後清空購物車與客戶選擇
+    // 清空購物車與客戶欄位
     setCart([]);
     setCustomerSearch('');
+  };
+
+  // 銷售紀錄日期快捷切換
+  const handleDateFilterPreset = (mode: 'today' | 'week' | 'month' | 'all') => {
+    setDateFilterMode(mode);
+    const today = new Date();
+    const todayStr = getTodayStr();
+
+    if (mode === 'today') {
+      setDateStart(todayStr);
+      setDateEnd(todayStr);
+    } else if (mode === 'week') {
+      const firstDayOfWeek = new Date(today);
+      firstDayOfWeek.setDate(today.getDate() - today.getDay());
+      setDateStart(`${firstDayOfWeek.getFullYear()}-${String(firstDayOfWeek.getMonth() + 1).padStart(2, '0')}-${String(firstDayOfWeek.getDate()).padStart(2, '0')}`);
+      setDateEnd(todayStr);
+    } else if (mode === 'month') {
+      const firstDayOfMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
+      setDateStart(firstDayOfMonth);
+      setDateEnd(todayStr);
+    } else if (mode === 'all') {
+      setDateStart('2020-01-01');
+      setDateEnd('2030-12-31');
+    }
+  };
+
+  // 篩選銷售紀錄 (支援單號、客戶、經手人員、商品名稱、IMEI 序號)
+  const filteredRecords = salesRecords.filter(r => {
+    const matchSearch = !recordSearch || 
+      r.orderNo.toLowerCase().includes(recordSearch.toLowerCase()) ||
+      r.customerName.toLowerCase().includes(recordSearch.toLowerCase()) ||
+      r.salesperson.toLowerCase().includes(recordSearch.toLowerCase()) ||
+      r.items.some(i => i.name.toLowerCase().includes(recordSearch.toLowerCase()));
+
+    const matchSalesperson = filterSalesperson === '全部門市人員' || r.salesperson === filterSalesperson;
+    const matchCustType = filterCustomerType === '全部客戶類型' || r.customerType === filterCustomerType;
+
+    const matchDate = (!dateStart || r.date >= dateStart) && (!dateEnd || r.date <= dateEnd);
+
+    return matchSearch && matchSalesperson && matchCustType && matchDate;
+  });
+
+  const toggleExpandRecord = (id: string) => {
+    setExpandedRecordIds(prev => 
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
   };
 
   const filteredProducts = products.filter(p => 
@@ -290,7 +351,6 @@ export default function ControlPage() {
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             <div className="lg:col-span-8 space-y-4">
-              {/* 選擇方案區 */}
               <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/65 space-y-4">
                 <div className="flex justify-between items-center">
                   <span className="text-xs font-bold text-slate-700">選擇方案</span>
@@ -308,7 +368,6 @@ export default function ControlPage() {
                 </div>
               </div>
 
-              {/* 加入商品區 */}
               <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-4">
                 <p className="text-xs font-bold text-slate-700">加入商品</p>
                 <input
@@ -335,14 +394,13 @@ export default function ControlPage() {
               </div>
             </div>
 
-            {/* 右側購物車與結帳 */}
             <div className="lg:col-span-4 bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-4">
               <div className="flex justify-between items-center border-b border-slate-100 pb-3">
                 <span className="text-xs font-bold text-slate-700">🛒 購物車明細 <span className="text-blue-600 font-mono">({cart.length})</span></span>
                 <button onClick={() => setCart([])} className="text-[10px] text-slate-400 hover:text-rose-600">清空</button>
               </div>
 
-              {/* 客戶搜尋與選擇 */}
+              {/* 客戶搜尋 (預設完全空白) */}
               <div className="space-y-1 relative">
                 <div className="flex justify-between items-center text-[10px] text-slate-400">
                   <span>客戶 (選填，個人貴賓可不選)</span>
@@ -384,7 +442,6 @@ export default function ControlPage() {
                 )}
               </div>
 
-              {/* 購物車品項清單 */}
               <div className="min-h-[120px] max-h-[200px] overflow-y-auto space-y-2 border-b border-slate-100 pb-4">
                 {cart.length === 0 ? (
                   <p className="text-xs text-slate-400 text-center py-10">尚未加入品項或方案</p>
@@ -421,7 +478,6 @@ export default function ControlPage() {
                 )}
               </div>
 
-              {/* 自訂項目按鈕 */}
               <button 
                 onClick={() => setIsCustomModalOpen(true)}
                 className="w-full py-2.5 bg-slate-50 hover:bg-slate-100 border border-dashed border-slate-300 rounded-xl text-xs font-bold text-slate-600 transition flex items-center justify-center gap-1.5"
@@ -429,7 +485,6 @@ export default function ControlPage() {
                 + 自訂項目 / 🛠️ 維修服務
               </button>
 
-              {/* 多組付款方式與期數區塊 */}
               <div className="space-y-3 pt-2">
                 <div className="flex justify-between items-center">
                   <span className="text-slate-400 text-[10px]">付款方式與期數</span>
@@ -498,7 +553,6 @@ export default function ControlPage() {
                 </div>
               </div>
 
-              {/* 總結與結帳按鈕 */}
               <div className="border-t pt-4 space-y-3">
                 <div className="flex justify-between text-xs font-mono">
                   <span className="text-slate-400">預估總毛利：</span>
@@ -517,12 +571,57 @@ export default function ControlPage() {
         </div>
       )}
 
-      {/* 2. 銷售紀錄畫面 */}
+      {/* 2. 銷售紀錄畫面 (完整對齊您附圖的查詢、日期、修改、明細展開功能) */}
       {activeTab === 'records' && (
         <div className="space-y-4">
-          <h1 className="text-xl font-bold text-slate-800">銷售紀錄</h1>
+          <div>
+            <h1 className="text-xl font-bold text-slate-800">銷售紀錄</h1>
+            <p className="text-xs text-slate-400 mt-0.5">查詢與管理銷售訂單記錄。</p>
+          </div>
+
           <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/60 space-y-4">
-            <div className="text-xs text-slate-500 font-medium">共 {salesRecords.length} 筆紀錄</div>
+            {/* 搜尋與篩選列 */}
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                type="text"
+                value={recordSearch}
+                onChange={(e) => setRecordSearch(e.target.value)}
+                placeholder="搜尋單號 / 客戶 / 經手人員 / 商品名稱 / IMEI..."
+                className="flex-1 min-w-[260px] bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs"
+              />
+              <select
+                value={filterSalesperson}
+                onChange={(e) => setFilterSalesperson(e.target.value)}
+                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium"
+              >
+                <option value="全部門市人員">全部門市人員</option>
+                <option value="管理員">管理員</option>
+              </select>
+              <select
+                value={filterCustomerType}
+                onChange={(e) => setFilterCustomerType(e.target.value)}
+                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium"
+              >
+                <option value="全部客戶類型">全部客戶類型</option>
+                <option value="個人貴賓">個人貴賓</option>
+              </select>
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs">
+                <input type="date" value={dateStart} onChange={(e) => { setDateStart(e.target.value); setDateFilterMode('custom'); }} className="bg-transparent outline-none" />
+                <span className="text-slate-400">~</span>
+                <input type="date" value={dateEnd} onChange={(e) => { setDateEnd(e.target.value); setDateFilterMode('custom'); }} className="bg-transparent outline-none" />
+              </div>
+            </div>
+
+            {/* 今日、本週、本月、全部快速切換按鈕 */}
+            <div className="flex items-center gap-2 pt-1">
+              <button onClick={() => handleDateFilterPreset('today')} className={`px-3.5 py-1 rounded-xl text-xs font-bold transition ${dateFilterMode === 'today' ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>今日</button>
+              <button onClick={() => handleDateFilterPreset('week')} className={`px-3.5 py-1 rounded-xl text-xs font-bold transition ${dateFilterMode === 'week' ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>本週</button>
+              <button onClick={() => handleDateFilterPreset('month')} className={`px-3.5 py-1 rounded-xl text-xs font-bold transition ${dateFilterMode === 'month' ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>本月</button>
+              <button onClick={() => handleDateFilterPreset('all')} className={`px-3.5 py-1 rounded-xl text-xs font-bold transition ${dateFilterMode === 'all' ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>全部</button>
+            </div>
+
+            <div className="text-xs text-slate-500 pt-2 font-medium">共 {filteredRecords.length} 筆紀錄</div>
+
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead>
@@ -533,19 +632,70 @@ export default function ControlPage() {
                     <th className="pb-3">總金額</th>
                     <th className="pb-3">毛利</th>
                     <th className="pb-3">付款方式</th>
+                    <th className="pb-3 text-right pr-3">操作</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {salesRecords.map((r) => (
-                    <tr key={r.id} className="hover:bg-slate-50/80 transition">
-                      <td className="py-3.5 pl-3 font-mono font-bold text-slate-800">{r.orderNo}<span className="block text-[10px] text-slate-400 font-normal">{r.date}</span></td>
-                      <td className="py-3.5">{r.customerName}</td>
-                      <td className="py-3.5">{r.salesperson}</td>
-                      <td className="py-3.5 font-mono font-bold">${r.totalAmount}</td>
-                      <td className="py-3.5 font-mono font-bold text-emerald-600">+${r.profit}</td>
-                      <td className="py-3.5"><span className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg text-[10px] font-bold">{r.paymentInfo}</span></td>
+                  {filteredRecords.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="text-center py-12 text-slate-400">沒有符合條件的銷售紀錄</td>
                     </tr>
-                  ))}
+                  ) : (
+                    filteredRecords.map((r) => {
+                      const isExpanded = expandedRecordIds.includes(r.id);
+                      return (
+                        <React.Fragment key={r.id}>
+                          <tr className="hover:bg-slate-50/80 transition">
+                            <td className="py-3.5 pl-3 font-mono font-bold text-slate-800">
+                              {r.orderNo}
+                              <span className="block text-[10px] text-slate-400 font-normal">{r.date}</span>
+                            </td>
+                            <td className="py-3.5">
+                              {r.customerName}
+                              <span className="block text-[10px] text-slate-400">{r.customerType}</span>
+                            </td>
+                            <td className="py-3.5">{r.salesperson}</td>
+                            <td className="py-3.5 font-mono font-bold">${r.totalAmount}</td>
+                            <td className="py-3.5 font-mono font-bold text-emerald-600">+${r.profit}</td>
+                            <td className="py-3.5">
+                              <span className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg text-[10px] font-bold">{r.paymentInfo}</span>
+                            </td>
+                            <td className="py-3.5 text-right pr-3 space-x-2">
+                              <button 
+                                onClick={() => setEditingRecord(r)}
+                                className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-bold transition"
+                              >
+                                修改
+                              </button>
+                              <button 
+                                onClick={() => toggleExpandRecord(r.id)}
+                                className="px-3 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-xl text-[10px] font-bold transition"
+                              >
+                                {isExpanded ? '收起' : '明細'}
+                              </button>
+                            </td>
+                          </tr>
+                          {isExpanded && (
+                            <tr className="bg-slate-50/50">
+                              <td colSpan={7} className="p-4">
+                                <div className="bg-white p-4 rounded-2xl border border-slate-200/60 space-y-2">
+                                  <p className="text-xs font-bold text-slate-700">銷售明細：</p>
+                                  <div className="space-y-1">
+                                    {r.items.map((item, idx) => (
+                                      <div key={idx} className="flex justify-between text-xs text-slate-600">
+                                        <span>{item.name} × {item.quantity}</span>
+                                        <span className="font-mono font-bold">${(Number(item.price) || 0) * item.quantity}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
@@ -560,6 +710,73 @@ export default function ControlPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="bg-white rounded-3xl p-6 shadow-sm border space-y-2"><p className="text-xs text-slate-400">銷售總額</p><p className="text-2xl font-mono font-bold text-slate-800">$0</p></div>
             <div className="bg-white rounded-3xl p-6 shadow-sm border space-y-2"><p className="text-xs text-slate-400">總毛利</p><p className="text-2xl font-mono font-bold text-emerald-600">+$0</p></div>
+          </div>
+        </div>
+      )}
+
+      {/* 彈跳視窗：修改銷售紀錄 */}
+      {editingRecord && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-lg space-y-4 shadow-xl">
+            <div className="flex justify-between items-center">
+              <h3 className="text-sm font-bold text-slate-800">修改銷售紀錄 ({editingRecord.orderNo})</h3>
+              <button onClick={() => setEditingRecord(null)} className="text-slate-400 hover:text-slate-600 text-sm font-bold">✕</button>
+            </div>
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="text-slate-400 text-[10px]">銷貨日期</label>
+                <input 
+                  type="date" 
+                  value={editingRecord.date} 
+                  onChange={(e) => setEditingRecord({ ...editingRecord, date: e.target.value })} 
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 mt-1" 
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 text-[10px]">客戶姓名</label>
+                <input 
+                  type="text" 
+                  value={editingRecord.customerName} 
+                  onChange={(e) => setEditingRecord({ ...editingRecord, customerName: e.target.value })} 
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 mt-1" 
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 text-[10px]">付款資訊</label>
+                <input 
+                  type="text" 
+                  value={editingRecord.paymentInfo} 
+                  onChange={(e) => setEditingRecord({ ...editingRecord, paymentInfo: e.target.value })} 
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 mt-1" 
+                />
+              </div>
+            </div>
+            <div className="flex justify-between items-center pt-2">
+              <button 
+                onClick={() => {
+                  if (confirm('確定要刪除這筆銷售紀錄嗎？')) {
+                    setSalesRecords(salesRecords.filter(r => r.id !== editingRecord.id));
+                    setEditingRecord(null);
+                  }
+                }}
+                className="px-4 py-2.5 bg-rose-50 text-rose-600 rounded-xl text-xs font-bold hover:bg-rose-100 transition"
+              >
+                刪除這筆紀錄
+              </button>
+              <div className="flex gap-2">
+                <button onClick={() => setEditingRecord(null)} className="px-4 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold">取消</button>
+                <button 
+                  onClick={() => {
+                    setSalesRecords(salesRecords.map(r => r.id === editingRecord.id ? editingRecord : r));
+                    setEditingRecord(null);
+                    alert('修改儲存成功！');
+                  }} 
+                  className="px-5 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-sm"
+                >
+                  儲存修改
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
