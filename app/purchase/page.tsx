@@ -12,7 +12,7 @@ interface Product {
   stock: number;
   has_serial: boolean; 
   serial_numbers?: string;
-  brand?: string;       // 廠牌欄位
+  brand?: string;        // 廠牌欄位
   vendor_name?: string; // 廠商欄位
 }
 
@@ -38,6 +38,7 @@ export default function ProductsPage() {
   const [formSubCategory, setFormSubCategory] = useState('手機');
   const [formCost, setFormCost] = useState('');
   const [formPrice, setFormPrice] = useState('');
+  const [formQuantity, setFormQuantity] = useState('1'); // ★ 新增：進貨數量狀態
   const [formHasSerial, setFormHasSerial] = useState(true);
   const [formSerialNumber, setFormSerialNumber] = useState('');
   
@@ -139,6 +140,7 @@ export default function ProductsPage() {
     setFormSubCategory('手機');
     setFormCost('');
     setFormPrice('');
+    setFormQuantity('1'); // 重設數量
     setFormHasSerial(true);
     setFormSerialNumber('');
     setFormBrand('');      // 清空廠牌
@@ -181,7 +183,11 @@ export default function ProductsPage() {
     setIsSubmitting(true);
     try {
       const itemCost = parseFloat(formCost) || 0;
-      const initialStock = (formHasSerial && formSerialNumber.trim()) ? 1 : 0;
+      const parsedQuantity = parseInt(formQuantity, 10);
+      const qty = isNaN(parsedQuantity) || parsedQuantity < 1 ? 1 : parsedQuantity;
+      
+      // 根據輸入的數量來決定初始庫存
+      const initialStock = qty;
 
       const insertData: any = {
         name: formName,
@@ -202,15 +208,15 @@ export default function ProductsPage() {
 
       if (prodError) throw prodError;
 
-      if (initialStock === 1 && newProd) {
+      if (initialStock > 0 && newProd) {
         await supabase
           .from('purchase_records')
           .insert([{
             product_id: newProd.id,
             product_name: newProd.name,
-            quantity: 1,
+            quantity: initialStock,
             cost: itemCost,
-            serial_numbers: formSerialNumber.trim()
+            serial_numbers: formHasSerial ? formSerialNumber.trim() : null
           }]);
       }
 
@@ -381,6 +387,18 @@ export default function ProductsPage() {
               <div className="flex gap-4">
                 <input type="number" placeholder="成本" className="w-full border rounded-lg p-3" value={formCost} onChange={(e) => setFormCost(e.target.value)} />
                 <input type="number" placeholder="售價" className="w-full border rounded-lg p-3" value={formPrice} onChange={(e) => setFormPrice(e.target.value)} />
+              </div>
+
+              {/* ★ 新增：進貨數量欄位 */}
+              <div>
+                <input 
+                  type="number" 
+                  min="1" 
+                  placeholder="進貨數量 (預設 1)" 
+                  className="w-full border rounded-lg p-3 bg-slate-50 font-mono" 
+                  value={formQuantity} 
+                  onChange={(e) => setFormQuantity(e.target.value)} 
+                />
               </div>
 
               {/* 序列號管理 */}
