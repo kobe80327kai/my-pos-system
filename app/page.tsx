@@ -71,15 +71,7 @@ export default function ControlPage() {
     return [];
   });
 
-  // 客戶名單預設為空，並自動讀取與同步 localStorage 中的客戶管理資料
-  const [customers, setCustomers] = useState<Customer[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('pos_customers');
-      if (saved) return JSON.parse(saved);
-    }
-    return [];
-  });
-
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [plans, setPlans] = useState<PlanItem[]>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('pos_plans');
@@ -98,21 +90,27 @@ export default function ControlPage() {
     { id: 'p3', name: 'iPhone 15 128G', price: 25900, cost: 23000, stock: 3, category: '手機' },
   ];
 
+  // 每次畫面載入或切換時，強制從 localStorage 重新載入客戶管理資料
+  const refreshCustomersFromStorage = () => {
+    if (typeof window !== 'undefined') {
+      const savedCust = localStorage.getItem('pos_customers');
+      if (savedCust) {
+        try {
+          setCustomers(JSON.parse(savedCust));
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+  };
+
+  useEffect(() => {
+    refreshCustomersFromStorage();
+  }, []);
+
   useEffect(() => {
     localStorage.setItem('pos_sales_records', JSON.stringify(salesRecords));
   }, [salesRecords]);
-
-  // 定期或監聽同步客戶資料
-  useEffect(() => {
-    const handleStorageChange = () => {
-      const savedCust = localStorage.getItem('pos_customers');
-      if (savedCust) {
-        setCustomers(JSON.parse(savedCust));
-      }
-    };
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [productSearch, setProductSearch] = useState('');
@@ -155,6 +153,7 @@ export default function ControlPage() {
   };
 
   const addPlanToCart = (plan: PlanItem) => {
+    const planRebate = Number(plan.rebate) || 0;
     setCart((prev) => [
       ...prev,
       { 
@@ -162,7 +161,7 @@ export default function ControlPage() {
         name: `[方案] ${plan.name}`, 
         price: 0, 
         cost: 0,
-        rebate: Number(plan.rebate) || 0, // 強制確保佣金數值寫入
+        rebate: planRebate,
         quantity: 1, 
         type: 'plan' 
       }
@@ -228,7 +227,7 @@ export default function ControlPage() {
 
   const totalAmountWithFee = subtotal + totalFeeAmount;
   
-  // 修正毛利計算：方案直接累加其對應的 rebate 佣金
+  // 毛利計算：明確將方案的 rebate 累加進去
   const baseProfit = cart.reduce((sum, item) => {
     if (item.type === 'plan') {
       return sum + Number(item.rebate || 0);
@@ -258,7 +257,7 @@ export default function ControlPage() {
       items: cart.map(i => ({ 
         name: i.name, 
         price: i.price, 
-        cost: i.type === 'plan' ? -i.rebate : i.cost, 
+        cost: i.type === 'plan' ? -Number(i.rebate || 0) : i.cost, 
         quantity: i.quantity 
       })),
       totalAmount: totalAmountWithFee,
@@ -319,7 +318,7 @@ export default function ControlPage() {
     !productSearch || p.name.includes(productSearch) || p.id.includes(productSearch)
   );
 
-  // 確保客戶搜尋能夠比對完整清單
+  // 搜尋時比對客戶資料
   const filteredCustomers = customers.filter(c => 
     !customerSearch || c.name.includes(customerSearch) || c.phone.includes(customerSearch)
   );
@@ -406,10 +405,14 @@ export default function ControlPage() {
                   type="text"
                   value={customerSearch}
                   onChange={(e) => {
+                    refreshCustomersFromStorage(); // 每次打字時強制同步
                     setCustomerSearch(e.target.value);
                     setIsCustomerDropdownOpen(true);
                   }}
-                  onFocus={() => setIsCustomerDropdownOpen(true)}
+                  onFocus={() => {
+                    refreshCustomersFromStorage(); // 點擊時強制同步
+                    setIsCustomerDropdownOpen(true);
+                  }}
                   placeholder="搜尋客戶姓名 / 電話..."
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium"
                 />
@@ -422,7 +425,7 @@ export default function ControlPage() {
                       (不選擇客戶 / 預設不填)
                     </div>
                     {filteredCustomers.length === 0 ? (
-                      <div className="px-3 py-2 text-xs text-slate-400 text-center">尚無客戶資料，請點擊上方建立會員</div>
+                      <div className="px-3 py-2 text-xs text-slate-400 text-center">尚無客戶資料，請確認客戶管理是否有建檔</div>
                     ) : (
                       filteredCustomers.map(c => (
                         <div
@@ -448,8 +451,9 @@ export default function ControlPage() {
                 ) : (
                   cart.map((i, index) => {
                     const itemPrice = Number(i.price) || 0;
+                    const itemRebate = Number(i.rebate) || 0;
                     const itemProfit = i.type === 'plan' 
-                      ? Number(i.rebate || 0) 
+                      ? itemRebate 
                       : (itemPrice - Number(i.cost || 0)) * i.quantity;
 
                     return (
@@ -461,7 +465,7 @@ export default function ControlPage() {
                         {i.type === 'plan' ? (
                           <div className="flex justify-between items-center text-[10px] text-emerald-600 font-bold">
                             <span>方案佣金:</span>
-                            <span>+${i.rebate}</span>
+                            <span>+${itemRebate}</span>
                           </div>
                         ) : (
                           <>
