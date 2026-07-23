@@ -205,7 +205,7 @@ export default function Home() {
 
   return (
     <div className="flex h-screen bg-slate-100 text-slate-800 font-sans overflow-hidden">
-      {/* 唯一、完整的左側導覽列（包含您原本所有的選單項目） */}
+      {/* 唯一且完整的左側導覽列 */}
       <div className="w-64 bg-[#0B132B] text-slate-300 flex flex-col justify-between select-none shrink-0 overflow-y-auto">
         <div>
           <div className="p-6 flex items-center gap-3 border-b border-slate-800/60">
