@@ -76,7 +76,6 @@ export default function Home() {
     { id: 'p3', name: 'iPhone 15 128G', price: 25900, cost: 23000, stock: 3 },
   ];
 
-  // 動態讀取 Supabase 中的方案清單
   const [plans, setPlans] = useState<Plan[]>([]);
 
   const fetchPlans = async () => {
@@ -110,7 +109,6 @@ export default function Home() {
     }
   };
 
-  // 改為從 Supabase 資料庫抓取客戶清單
   const [customers, setCustomers] = useState<Customer[]>([]);
 
   const fetchCustomers = async () => {
@@ -143,7 +141,7 @@ export default function Home() {
   useEffect(() => {
     fetchSalesRecords();
     fetchPlans();
-    fetchCustomers(); // 初始化時讀取客戶資料
+    fetchCustomers();
   }, []);
 
   const fetchSalesRecords = async () => {
@@ -276,7 +274,7 @@ export default function Home() {
       record.orderNo.toLowerCase().includes(keyword) ||
       record.customerName.toLowerCase().includes(keyword) ||
       record.salesperson.toLowerCase().includes(keyword) ||
-      record.items.some(i => i.name.toLowerCase().includes(keyword) || i.imei.toLowerCase().includes(keyword));
+      record.items.some(i => i.name.toLowerCase().includes(keyword) || (i.imei && i.imei.toLowerCase().includes(keyword)));
 
     const matchStaff = filterStoreStaff === '全部' || record.salesperson === filterStoreStaff;
     const matchCustType = filterCustType === '全部' || record.customerType === filterCustType;
@@ -403,7 +401,6 @@ export default function Home() {
     setIsCustomModalOpen(false);
   };
 
-  // 修改快速建立會員，同步寫入 Supabase 的 customers 表格
   const handleCreateCustomer = async () => {
     if (!newCustName.trim() || !newCustPhone.trim()) {
       alert('請填寫姓名與電話！');
@@ -415,7 +412,7 @@ export default function Home() {
       phone: newCustPhone.trim(),
     };
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('customers')
       .insert([newDbCustomer])
       .select();
@@ -425,7 +422,7 @@ export default function Home() {
       return;
     }
 
-    await fetchCustomers(); // 重新抓取最新客戶清單
+    await fetchCustomers();
     setCustomerSearch(`${newCustName.trim()} ( ${newCustPhone.trim()} )`);
     setNewCustName('');
     setNewCustPhone('');
@@ -521,19 +518,19 @@ export default function Home() {
           <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl text-xs">
             <button
               onClick={() => setCurrentTab('pos')}
-              className={`px-3 py-1 rounded-lg transition font-medium ${currentTab === 'pos' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`px-3 py-1 rounded-lg transition font-medium ${currentTab === 'pos' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
             >
               🛒 銷貨結帳
             </button>
             <button
               onClick={() => setCurrentTab('salesRecord')}
-              className={`px-3 py-1 rounded-lg transition font-medium ${currentTab === 'salesRecord' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`px-3 py-1 rounded-lg transition font-medium ${currentTab === 'salesRecord' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
             >
               📄 銷售紀錄
             </button>
             <button
               onClick={() => setCurrentTab('performance')}
-              className={`px-3 py-1 rounded-lg transition font-medium ${currentTab === 'performance' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`px-3 py-1 rounded-lg transition font-medium ${currentTab === 'performance' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
             >
               📊 業績報表
             </button>
@@ -808,66 +805,56 @@ export default function Home() {
                 type="text"
                 value={recordSearchKeyword}
                 onChange={(e) => setRecordSearchKeyword(e.target.value)}
-                placeholder="搜尋單號、客戶、銷售人員..."
-                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 w-64 focus:outline-none focus:border-blue-500"
+                placeholder="搜尋單號、客戶、銷售員、品項..."
+                className="bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-700 w-72 focus:outline-none focus:border-blue-500"
               />
-              <div className="flex gap-2">
-                <button onClick={() => handleDatePreset('today')} className={`px-3 py-1.5 rounded-lg text-xs font-medium ${datePreset === 'today' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>今天</button>
-                <button onClick={() => handleDatePreset('week')} className={`px-3 py-1.5 rounded-lg text-xs font-medium ${datePreset === 'week' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>本週</button>
-                <button onClick={() => handleDatePreset('month')} className={`px-3 py-1.5 rounded-lg text-xs font-medium ${datePreset === 'month' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>本月</button>
-                <button onClick={() => handleDatePreset('all')} className={`px-3 py-1.5 rounded-lg text-xs font-medium ${datePreset === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>全部</button>
+              <div className="flex items-center gap-2">
+                <button onClick={() => handleDatePreset('today')} className={`px-3 py-1.5 rounded-xl text-xs font-medium ${datePreset === 'today' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>今日</button>
+                <button onClick={() => handleDatePreset('week')} className={`px-3 py-1.5 rounded-xl text-xs font-medium ${datePreset === 'week' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>本週</button>
+                <button onClick={() => handleDatePreset('month')} className={`px-3 py-1.5 rounded-xl text-xs font-medium ${datePreset === 'month' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>本月</button>
+                <button onClick={() => handleDatePreset('all')} className={`px-3 py-1.5 rounded-xl text-xs font-medium ${datePreset === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>全部</button>
+                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-700 ml-2" />
+                <span className="text-slate-400">~</span>
+                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-700" />
               </div>
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
+              <table className="w-full text-left text-xs">
                 <thead>
-                  <tr className="border-b border-slate-200 text-slate-400 bg-slate-50/50">
-                    <th className="p-3">單號</th>
-                    <th className="p-3">日期</th>
-                    <th className="p-3">客戶名稱</th>
-                    <th className="p-3">銷售人員</th>
-                    <th className="p-3">總金額</th>
-                    <th className="p-3">毛利</th>
-                    <th className="p-3">付款方式</th>
-                    <th className="p-3 text-right">操作</th>
+                  <tr className="border-b border-slate-100 text-slate-400 font-medium">
+                    <th className="pb-3 pl-3">單號 / 日期</th>
+                    <th className="pb-3">客戶</th>
+                    <th className="pb-3">品項內容</th>
+                    <th className="pb-3">付款資訊</th>
+                    <th className="pb-3 text-right">總金額</th>
+                    <th className="pb-3 text-right pr-3">毛利</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-slate-50">
                   {filteredSalesRecords.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="text-center py-6 text-slate-400">目前沒有符合的銷售紀錄</td>
+                      <td colSpan={6} className="text-center py-8 text-slate-400">沒有符合條件的銷售紀錄</td>
                     </tr>
                   ) : (
-                    filteredSalesRecords.map((record) => (
-                      <React.Fragment key={record.id}>
-                        <tr className="hover:bg-slate-50/80 transition">
-                          <td className="p-3 font-mono font-bold text-blue-600">{record.orderNo}</td>
-                          <td className="p-3 text-slate-500">{record.date}</td>
-                          <td className="p-3 font-semibold text-slate-800">{record.customerName}</td>
-                          <td className="p-3 text-slate-600">{record.salesperson}</td>
-                          <td className="p-3 font-mono font-bold text-slate-800">${record.totalAmount.toLocaleString()}</td>
-                          <td className="p-3 font-mono font-bold text-emerald-600">+${record.profit.toLocaleString()}</td>
-                          <td className="p-3 text-slate-600">{record.paymentInfo}</td>
-                          <td className="p-3 text-right space-x-2">
-                            <button
-                              onClick={() => {
-                                setEditingRecord(record);
-                                setIsEditModalOpen(true);
-                              }}
-                              className="px-2.5 py-1 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 font-medium"
-                            >
-                              編輯
-                            </button>
-                            <button
-                              onClick={() => handleDeleteRecord(record.id)}
-                              className="px-2.5 py-1 bg-rose-50 text-rose-600 rounded-lg hover:bg-rose-100 font-medium"
-                            >
-                              刪除
-                            </button>
-                          </td>
-                        </tr>
-                      </React.Fragment>
+                    filteredSalesRecords.map((r) => (
+                      <tr key={r.id} className="hover:bg-slate-50/80 transition">
+                        <td className="py-3.5 pl-3">
+                          <p className="font-bold text-slate-800 font-mono">{r.orderNo}</p>
+                          <p className="text-[11px] text-slate-400">{r.date}</p>
+                        </td>
+                        <td className="py-3.5 font-medium text-slate-700">{r.customerName}</td>
+                        <td className="py-3.5 max-w-xs">
+                          {r.items.map((i, idx) => (
+                            <div key={idx} className="text-slate-600 truncate">
+                              • {i.name} {i.quantity > 1 ? `x${i.quantity}` : ''} (${i.price})
+                            </div>
+                          ))}
+                        </td>
+                        <td className="py-3.5 text-slate-600">{r.paymentInfo}</td>
+                        <td className="py-3.5 text-right font-mono font-bold text-slate-800">${r.totalAmount.toLocaleString()}</td>
+                        <td className="py-3.5 text-right pr-3 font-mono font-bold text-emerald-600">+${r.profit.toLocaleString()}</td>
+                      </tr>
                     ))
                   )}
                 </tbody>
@@ -880,19 +867,69 @@ export default function Home() {
       {/* 業績報表頁籤 */}
       {currentTab === 'performance' && (
         <div className="p-8 space-y-6">
-          <div>
-            <h1 className="text-xl font-bold text-slate-800">業績報表</h1>
-            <p className="text-xs text-slate-400 mt-0.5">檢視指定區間內的整體業績與毛利統計。</p>
+          <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-2">
+            <h2 className="text-base font-bold text-slate-800">業績報表</h2>
+            <p className="text-xs text-slate-400">檢視指定區間內的整體業績與毛利統計。</p>
+            <div className="flex items-center gap-2 pt-2">
+              <input 
+                type="date" 
+                value={perfStartDate} 
+                onChange={(e) => setPerfStartDate(e.target.value)} 
+                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-700"
+              />
+              <span className="text-slate-400">~</span>
+              <input 
+                type="date" 
+                value={perfEndDate} 
+                onChange={(e) => setPerfEndDate(e.target.value)} 
+                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-700"
+              />
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/60 space-y-2">
+          <div className="grid grid-cols-2 gap-6">
+            <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200/60 space-y-2">
               <span className="text-xs text-slate-400 font-medium">區間總業績</span>
-              <p className="text-2xl font-mono font-bold text-slate-800">${perfTotalAmount.toLocaleString()}</p>
+              <h3 className="text-4xl font-mono font-bold text-slate-800">${perfTotalAmount.toLocaleString()}</h3>
             </div>
-            <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/60 space-y-2">
+            <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200/60 space-y-2">
               <span className="text-xs text-slate-400 font-medium">區間總毛利</span>
-              <p className="text-2xl font-mono font-bold text-emerald-600">+${perfTotalProfit.toLocaleString()}</p>
+              <h3 className="text-4xl font-mono font-bold text-emerald-600">+${perfTotalProfit.toLocaleString()}</h3>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 快速建立會員 Modal */}
+      {isQuickCustomerModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 w-96 shadow-xl space-y-4">
+            <h3 className="text-sm font-bold text-slate-800">快速建立會員</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-slate-500 block mb-1">客戶姓名</label>
+                <input
+                  type="text"
+                  value={newCustName}
+                  onChange={(e) => setNewCustName(e.target.value)}
+                  placeholder="請輸入姓名"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 block mb-1">手機號碼</label>
+                <input
+                  type="text"
+                  value={newCustPhone}
+                  onChange={(e) => setNewCustPhone(e.target.value)}
+                  placeholder="請輸入手機號碼"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setIsQuickCustomerModalOpen(false)} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-medium">取消</button>
+              <button onClick={handleCreateCustomer} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-medium">確認建立</button>
             </div>
           </div>
         </div>
@@ -900,172 +937,93 @@ export default function Home() {
 
       {/* 方案選擇 Modal */}
       {isPlanModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[85vh]">
-            <div className="p-5 border-b border-slate-100 flex justify-between items-center">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 w-[600px] max-h-[80vh] flex flex-col shadow-xl space-y-4">
+            <div className="flex justify-between items-center">
               <h3 className="text-sm font-bold text-slate-800">選擇電信方案</h3>
-              <button onClick={() => setIsPlanModalOpen(false)} className="text-slate-400 hover:text-slate-600 font-bold">✕</button>
+              <button onClick={() => setIsPlanModalOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
             </div>
-            <div className="p-5 space-y-4 overflow-y-auto flex-1">
-              <input
-                type="text"
-                value={planSearch}
-                onChange={(e) => setPlanSearch(e.target.value)}
-                placeholder="搜尋方案名稱或代碼..."
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500"
-              />
-              <div className="space-y-2">
-                {filteredPlans.length === 0 ? (
-                  <p className="text-center py-6 text-xs text-slate-400">找不到符合的方案</p>
-                ) : (
-                  filteredPlans.map((pl) => (
-                    <div
-                      key={pl.id}
-                      onClick={() => handleSelectPlan(pl)}
-                      className="p-3.5 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-blue-50/50 hover:border-blue-300 cursor-pointer flex justify-between items-center transition"
-                    >
-                      <div>
-                        <span className="text-xs font-bold text-slate-800">[{pl.telecom}] {pl.name}</span>
-                        <p className="text-[11px] text-slate-400 mt-0.5">類型：{pl.type} | 月租：${pl.monthlyFee}</p>
-                      </div>
-                      <span className="text-xs font-mono font-bold text-emerald-600">傭金 +${pl.commission}</span>
+            <input
+              type="text"
+              value={planSearch}
+              onChange={(e) => setPlanSearch(e.target.value)}
+              placeholder="搜尋方案名稱或代碼..."
+              className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs"
+            />
+            <div className="overflow-y-auto flex-1 space-y-2 pr-1">
+              {filteredPlans.length === 0 ? (
+                <div className="text-center py-8 text-xs text-slate-400">找不到符合的方案</div>
+              ) : (
+                filteredPlans.map((pl) => (
+                  <div
+                    key={pl.id}
+                    onClick={() => handleSelectPlan(pl)}
+                    className="p-3 border border-slate-100 hover:border-blue-500 hover:bg-blue-50/30 rounded-xl cursor-pointer flex justify-between items-center transition text-xs"
+                  >
+                    <div>
+                      <p className="font-bold text-slate-800">[{pl.telecom}] {pl.name} ({pl.type})</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">月租：${pl.monthlyFee} | 佣金：${pl.commission}</p>
                     </div>
-                  ))
-                )}
-              </div>
+                    <span className="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-medium">選擇</span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* 快速建立客戶 Modal */}
-      {isQuickCustomerModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden p-6 space-y-4">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-              <h3 className="text-sm font-bold text-slate-800">快速建立會員</h3>
-              <button onClick={() => setIsQuickCustomerModalOpen(false)} className="text-slate-400 hover:text-slate-600 font-bold">✕</button>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">客戶姓名</label>
-                <input
-                  type="text"
-                  value={newCustName}
-                  onChange={(e) => setNewCustName(e.target.value)}
-                  placeholder="請輸入姓名..."
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">連絡電話</label>
-                <input
-                  type="text"
-                  value={newCustPhone}
-                  onChange={(e) => setNewCustPhone(e.target.value)}
-                  placeholder="請輸入電話..."
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-            </div>
-            <div className="flex gap-3 pt-2">
-              <button onClick={() => setIsQuickCustomerModalOpen(false)} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-200 transition">取消</button>
-              <button onClick={handleCreateCustomer} className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-semibold hover:bg-blue-700 transition">確認建立</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 自訂項目 Modal */}
+      {/* 自訂項目 / 維修項目 Modal */}
       {isCustomModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden p-6 space-y-4">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-              <h3 className="text-sm font-bold text-slate-800">新增自訂 / 維修項目</h3>
-              <button onClick={() => setIsCustomModalOpen(false)} className="text-slate-400 hover:text-slate-600 font-bold">✕</button>
-            </div>
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 w-96 shadow-xl space-y-4">
+            <h3 className="text-sm font-bold text-slate-800">新增自訂項目 / 維修項目</h3>
             <div className="space-y-3">
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">項目分類</label>
+                <label className="text-xs text-slate-500 block mb-1">分類</label>
                 <select
                   value={customCategory}
                   onChange={(e) => setCustomCategory(e.target.value as any)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs"
                 >
-                  <option value="accessory">一般自訂項目</option>
-                  <option value="repair">維修項目</option>
+                  <option value="accessory">自訂品項 / 周邊</option>
+                  <option value="repair">🛠️ 維修項目</option>
                 </select>
               </div>
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">項目名稱</label>
+                <label className="text-xs text-slate-500 block mb-1">項目名稱</label>
                 <input
                   type="text"
                   value={customName}
                   onChange={(e) => setCustomName(e.target.value)}
-                  placeholder="例如：螢幕維修 / 貼膜服務..."
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500"
+                  placeholder="例如：iPhone 14 換螢幕 / 保護貼"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs"
                 />
               </div>
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">金額 ($)</label>
+                <label className="text-xs text-slate-500 block mb-1">售價 ($)</label>
                 <input
                   type="number"
                   value={customPrice}
                   onChange={(e) => setCustomPrice(e.target.value)}
                   placeholder="0"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 font-mono"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono"
                 />
               </div>
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">成本 ($，選填)</label>
+                <label className="text-xs text-slate-500 block mb-1">成本 ($)</label>
                 <input
                   type="number"
                   value={customCost}
                   onChange={(e) => setCustomCost(e.target.value)}
                   placeholder="0"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500 font-mono"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono"
                 />
               </div>
             </div>
-            <div className="flex gap-3 pt-2">
-              <button onClick={() => setIsCustomModalOpen(false)} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-200 transition">取消</button>
-              <button onClick={handleAddCustomItem} className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-semibold hover:bg-blue-700 transition">加入購物車</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 編輯銷售紀錄 Modal */}
-      {isEditModalOpen && editingRecord && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden p-6 space-y-4">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-              <h3 className="text-sm font-bold text-slate-800">編輯銷售紀錄 ({editingRecord.orderNo})</h3>
-              <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-slate-600 font-bold">✕</button>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">客戶名稱</label>
-                <input
-                  type="text"
-                  value={editingRecord.customerName}
-                  onChange={(e) => setEditingRecord({ ...editingRecord, customerName: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">銷售人員</label>
-                <input
-                  type="text"
-                  value={editingRecord.salesperson}
-                  onChange={(e) => setEditingRecord({ ...editingRecord, salesperson: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-            </div>
-            <div className="flex gap-3 pt-2">
-              <button onClick={() => setIsEditModalOpen(false)} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-200 transition">取消</button>
-              <button onClick={handleSaveEdit} className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-semibold hover:bg-blue-700 transition">儲存修改</button>
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setIsCustomModalOpen(false)} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-medium">取消</button>
+              <button onClick={handleAddCustomItem} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-medium">加入購物車</button>
             </div>
           </div>
         </div>
