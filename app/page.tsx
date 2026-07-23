@@ -63,27 +63,54 @@ export default function ControlPage() {
 
   const [activeTab, setActiveTab] = useState<'checkout' | 'records' | 'reports'>('checkout');
 
+  // 初始化銷售紀錄
   const [salesRecords, setSalesRecords] = useState<SaleRecord[]>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('pos_sales_records');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        try { return JSON.parse(saved); } catch (e) { console.error(e); }
+      }
     }
     return [];
   });
 
-  const [customers, setCustomers] = useState<Customer[]>([
-    { id: 'c1', name: '王小明', phone: '0912345678', type: '個人貴賓' },
-    { id: 'c2', name: '林美麗', phone: '0987654321', type: '個人貴賓' },
-    { id: 'c3', name: '測試客戶', phone: '0900123456', type: '個人貴賓' }
-  ]);
+  // 初始化客戶清單 (自動從 localStorage 讀取)
+  const [customers, setCustomers] = useState<Customer[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('pos_customers');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        } catch (e) { console.error(e); }
+      }
+    }
+    return [
+      { id: 'c1', name: '王小明', phone: '0912345678', type: '個人貴賓' },
+      { id: 'c2', name: '林美麗', phone: '0987654321', type: '個人貴賓' },
+      { id: 'c3', name: '測試客戶', phone: '0900123456', type: '個人貴賓' }
+    ];
+  });
 
-  const [plans, setPlans] = useState<PlanItem[]>([
-    { id: 'pl1', name: 'NP799 5G 專案', telecom: '中華電信', monthlyFee: 799, rebate: 3500 },
-    { id: 'pl2', name: '中華電信 5G 1399 (30期)', telecom: '中華電信', monthlyFee: 1399, rebate: 5000 },
-    { id: 'pl3', name: '台灣大哥大 4G 688 (24期)', telecom: '台灣大哥大', monthlyFee: 688, rebate: 3000 },
-    { id: 'pl4', name: '遠傳電信 5G 999 (24期)', telecom: '遠傳電信', monthlyFee: 999, rebate: 4000 },
-    { id: 'pl5', name: '699 專案', telecom: '通用', monthlyFee: 699, rebate: 2500 }
-  ]);
+  // 初始化方案清單 (自動從 localStorage 讀取)
+  const [plans, setPlans] = useState<PlanItem[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('pos_plans');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        } catch (e) { console.error(e); }
+      }
+    }
+    return [
+      { id: 'pl1', name: 'NP799 5G 專案', telecom: '中華電信', monthlyFee: 799, rebate: 3500 },
+      { id: 'pl2', name: '中華電信 5G 1399 (30期)', telecom: '中華電信', monthlyFee: 1399, rebate: 5000 },
+      { id: 'pl3', name: '台灣大哥大 4G 688 (24期)', telecom: '台灣大哥大', monthlyFee: 688, rebate: 3000 },
+      { id: 'pl4', name: '遠傳電信 5G 999 (24期)', telecom: '遠傳電信', monthlyFee: 999, rebate: 4000 },
+      { id: 'pl5', name: '699 專案', telecom: '通用', monthlyFee: 699, rebate: 2500 }
+    ];
+  });
 
   const products: Product[] = [
     { id: 'p1', name: '滿版保貼', price: 200, cost: 50, stock: 10, category: '配件' },
@@ -91,32 +118,23 @@ export default function ControlPage() {
     { id: 'p3', name: 'iPhone 15 128G', price: 25900, cost: 23000, stock: 3, category: '手機' },
   ];
 
-  const refreshCustomers = () => {
+  // 當客戶或方案變動時，立刻存入 localStorage
+  useEffect(() => {
     if (typeof window !== 'undefined') {
-      const savedCust = localStorage.getItem('pos_customers') || localStorage.getItem('customers');
-      if (savedCust) {
-        try {
-          const parsed = JSON.parse(savedCust);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setCustomers(prev => {
-              const combined = [...prev, ...parsed];
-              const unique = Array.from(new Map(combined.map(c => [c.phone, c])).values());
-              return unique;
-            });
-          }
-        } catch (e) {
-          console.error(e);
-        }
-      }
+      localStorage.setItem('pos_customers', JSON.stringify(customers));
     }
-  };
+  }, [customers]);
 
   useEffect(() => {
-    refreshCustomers();
-  }, []);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pos_plans', JSON.stringify(plans));
+    }
+  }, [plans]);
 
   useEffect(() => {
-    localStorage.setItem('pos_sales_records', JSON.stringify(salesRecords));
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pos_sales_records', JSON.stringify(salesRecords));
+    }
   }, [salesRecords]);
 
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -124,7 +142,7 @@ export default function ControlPage() {
   const [customerSearch, setCustomerSearch] = useState('');
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
   const [planSearch, setPlanSearch] = useState('');
-  const [payments, setPayments] = useState<PaymentEntry[]>([
+  const [payments, setPayments] = useState<PaymentEntry[]>(ownerPayments => [
     { id: 'pay-1', method: '現金', installments: '3' }
   ]);
 
@@ -149,6 +167,7 @@ export default function ControlPage() {
   const [newCustName, setNewCustName] = useState('');
   const [newCustPhone, setNewCustPhone] = useState('');
 
+  // 加入方案到購物車
   const addPlanToCart = (plan: PlanItem) => {
     const planRebate = Number(plan.rebate) > 0 ? Number(plan.rebate) : 2500;
     setCart((prev) => [
@@ -165,6 +184,16 @@ export default function ControlPage() {
     ]);
     setIsPlanModalOpen(false);
     setPlanSearch('');
+  };
+
+  const addToCart = (p: Product) => {
+    setCart((prev) => {
+      const existing = prev.find(item => item.id === p.id && item.type === 'product');
+      if (existing) {
+        return prev.map(item => item.id === p.id && item.type === 'product' ? { ...item, quantity: item.quantity + 1 } : item);
+      }
+      return [...prev, { id: p.id, name: p.name, price: p.price, cost: p.cost, rebate: 0, quantity: 1, type: 'product' }];
+    });
   };
 
   const handleAddCustomItem = () => {
@@ -196,9 +225,8 @@ export default function ControlPage() {
       return;
     }
     const newC: Customer = { id: `c-${Date.now()}`, name: newCustName, phone: newCustPhone, type: '個人貴賓' };
-    const updatedCustomers = [...customers, newC];
-    setCustomers(updatedCustomers);
-    localStorage.setItem('pos_customers', JSON.stringify(updatedCustomers));
+    const updated = [...customers, newC];
+    setCustomers(updated);
     setCustomerSearch(`${newC.name} (${newC.phone})`);
     setNewCustName('');
     setNewCustPhone('');
@@ -316,21 +344,19 @@ export default function ControlPage() {
     !productSearch || p.name.includes(productSearch) || p.id.includes(productSearch)
   );
 
-  // 寬鬆模糊搜尋客戶：只要有輸入文字，就比對名字或電話
+  // 模糊搜尋客戶
   const filteredCustomers = customers.filter(c => {
     if (!customerSearch) return true;
     const keyword = customerSearch.trim().toLowerCase();
-    const nameMatch = c.name.toLowerCase().includes(keyword);
-    const phoneMatch = c.phone.includes(keyword);
-    return nameMatch || phoneMatch;
+    return c.name.toLowerCase().includes(keyword) || c.phone.includes(keyword);
   });
 
+  // 模糊搜尋方案
   const filteredPlans = plans.filter(pl => {
     if (!planSearch) return true;
     const keyword = planSearch.trim().toLowerCase();
     return pl.name.toLowerCase().includes(keyword) || 
-           pl.telecom.toLowerCase().includes(keyword) || 
-           pl.id.toLowerCase().includes(keyword);
+           pl.telecom.toLowerCase().includes(keyword);
   });
 
   return (
@@ -404,22 +430,18 @@ export default function ControlPage() {
 
               <div className="space-y-1 relative">
                 <div className="flex justify-between items-center text-[10px] text-slate-400">
-                  <span>客戶 (選填，個人貴賓可不選)</span>
+                  <span>客戶 (選填)</span>
                   <button onClick={() => setIsCustomerModalOpen(true)} className="text-blue-600 font-bold">+ 快速建立會員</button>
                 </div>
                 <input
                   type="text"
                   value={customerSearch}
                   onChange={(e) => {
-                    refreshCustomers();
                     setCustomerSearch(e.target.value);
                     setIsCustomerDropdownOpen(true);
                   }}
-                  onFocus={() => {
-                    refreshCustomers();
-                    setIsCustomerDropdownOpen(true);
-                  }}
-                  placeholder="搜尋客戶姓名 / 電話 (例如 0900)..."
+                  onFocus={() => setIsCustomerDropdownOpen(true)}
+                  placeholder="搜尋客戶姓名 / 電話..."
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium"
                 />
                 {isCustomerDropdownOpen && (
@@ -428,7 +450,7 @@ export default function ControlPage() {
                       onClick={() => { setCustomerSearch(''); setIsCustomerDropdownOpen(false); }}
                       className="px-3 py-2 text-xs text-slate-400 hover:bg-slate-50 cursor-pointer border-b"
                     >
-                      (不選擇客戶 / 預設不填)
+                      (不選擇客戶)
                     </div>
                     {filteredCustomers.length === 0 ? (
                       <div className="p-3 text-center space-y-2 bg-slate-50/50">
@@ -817,6 +839,7 @@ export default function ControlPage() {
         </div>
       )}
 
+      {/* 方案選擇視窗 */}
       {isPlanModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-6 w-full max-w-lg space-y-4 shadow-xl">
@@ -829,7 +852,7 @@ export default function ControlPage() {
               type="text"
               value={planSearch}
               onChange={(e) => setPlanSearch(e.target.value)}
-              placeholder="搜尋方案名稱或代碼 (例如：NP799)..."
+              placeholder="搜尋方案名稱或代碼..."
               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-medium"
             />
 
@@ -842,17 +865,18 @@ export default function ControlPage() {
                     onClick={() => {
                       const newPl: PlanItem = {
                         id: `custom-pl-${Date.now()}`,
-                        name: planSearch,
+                        name: planSearch || '自訂方案',
                         telecom: '自訂',
                         monthlyFee: 799,
                         rebate: 3000
                       };
-                      setPlans([newPl, ...plans]);
+                      const updatedPlans = [newPl, ...plans];
+                      setPlans(updatedPlans);
                       addPlanToCart(newPl);
                     }}
                     className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-sm"
                   >
-                    + 直接建立並代入「{planSearch}」方案
+                    + 直接建立並代入「{planSearch || '自訂方案'}」
                   </button>
                 </div>
               ) : (
