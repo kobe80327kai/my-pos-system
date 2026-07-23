@@ -25,6 +25,8 @@ interface RepairRecord {
   price: number;       
   deviceModel: string;
   faultDesc: string;
+  paymentMethod: string;
+  status: string;
   createdAt?: string;
 }
 
@@ -94,16 +96,20 @@ export default function ReportsPage() {
         })));
       }
 
-      // 2. 抓取維修紀錄 (多欄位相容防呆)
+      // 2. 抓取維修紀錄 (強效容錯與全欄位對應)
       const { data: repairData, error: repairError } = await supabase.from('repairs').select('*').order('created_at', { ascending: false });
       if (!repairError && repairData) {
         setRepairRecords(repairData.map((item: any) => {
-          const priceVal = Number(item.price || item.total_price || item.totalPrice || item.amount || 0);
+          const priceVal = Number(
+            item.price || item.total_price || item.totalPrice || item.amount || item.repair_price || item.repairPrice || 0
+          );
           const costVal = Number(item.cost || item.outsource_cost || item.outsourceCost || 0);
           const repairNoVal = item.repair_no || item.repairNo || item.order_no || item.id?.slice(0, 8) || 'REP';
           const dateVal = item.date || item.created_at?.split('T')[0] || getTodayStr();
           const deviceVal = item.device_model || item.deviceModel || item.model || '維修裝置';
           const faultVal = item.fault_desc || item.faultDesc || item.description || '維修服務';
+          const paymentVal = item.payment_method || item.paymentMethod || item.pay_method || '現金';
+          const statusVal = item.status || item.repair_status || '';
 
           return {
             id: item.id,
@@ -113,6 +119,8 @@ export default function ReportsPage() {
             price: priceVal,
             deviceModel: deviceVal,
             faultDesc: faultVal,
+            paymentMethod: paymentVal,
+            status: statusVal,
             createdAt: item.created_at || dateVal,
           };
         }));
@@ -211,11 +219,19 @@ export default function ReportsPage() {
   // 款項結算
   const getPaymentTotal = (method: string) => {
     const cashSales = method === '現金' ? currentDaySalesTotal + currentDayRepairIncomeTotal : 0;
+    const repairMethodSum = currentDayRepairs
+      .filter(r => (r.paymentMethod || '現金') === method)
+      .reduce((sum, r) => sum + r.price, 0);
+    
+    // 如果全被歸類到通用現金或特定支付方式
+    const finalMethodSales = method === '現金' ? Math.max(cashSales, repairMethodSum) : repairMethodSum;
+
     const transSum = currentDayTrans
       .filter(t => t.paymentMethod === method)
       .reduce((sum, t) => sum + (t.type === 'income' ? t.amount : -t.amount), 0);
+    
     const repairCostSub = method === '現金' ? currentDayRepairCostTotal : 0;
-    return cashSales + transSum - repairCostSub;
+    return finalMethodSales + transSum - repairCostSub;
   };
 
   const cashTotal = getPaymentTotal('現金');
