@@ -31,13 +31,23 @@ interface Customer {
   phone: string;
 }
 
+interface PartItem {
+  id: string;
+  partNo: string;
+  name: string;
+  category: string;
+  model: string;
+  stock: number;
+  cost: number;
+}
+
 export default function RepairManagementPage() {
   const getTodayStr = () => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
 
-  const [activeTab, setActiveTab] = useState<'repairs' | 'parts' | 'purchases' | 'catalog' | 'vendors'>('repairs');
+  const [activeTab, setActiveTab] = useState<'repairs' | 'parts' | 'purchases' | 'catalog' | 'vendors'>('parts');
 
   // 客戶資料同步
   const [customers, setCustomers] = useState<Customer[]>(() => {
@@ -87,61 +97,27 @@ export default function RepairManagementPage() {
         status: '已收件',
         date: '2026-07-20',
         isOutsourced: false
-      },
+      }
+    ];
+  });
+
+  // 零件庫存列表
+  const [parts, setParts] = useState<PartItem[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('pos_parts_inventory_v3');
+        if (saved) return JSON.parse(saved);
+      } catch (e) { console.error(e); }
+    }
+    return [
       {
-        id: 'r2',
-        orderNo: 'RO260715004',
-        customerName: 'SF',
-        customerPhone: '0988-215971',
-        brand: '小米',
-        model: '紅米 NOTE13',
-        color: '',
-        imei: '',
-        problem: 'GOOGLE鎖',
-        price: 0,
-        repairFee: 0,
-        deposit: 0,
-        checkFee: 0,
-        status: '已收件',
-        date: '2026-07-15',
-        isOutsourced: true,
-        outsourcer: '聯強國際'
-      },
-      {
-        id: 'r3',
-        orderNo: 'RO260715003',
-        customerName: '陳清政',
-        customerPhone: '0980-201060',
-        brand: '小米',
-        model: '紅米 NOTE12 5G',
-        color: '',
-        imei: '',
-        problem: '電池膨脹',
-        price: 800,
-        repairFee: 800,
-        deposit: 0,
-        checkFee: 0,
-        status: '已取件',
-        date: '2026-07-15',
-        isOutsourced: false
-      },
-      {
-        id: 'r4',
-        orderNo: 'RO260715001',
-        customerName: '阿婷友',
-        customerPhone: '0924017866',
-        brand: 'Apple',
-        model: 'I15',
-        color: '',
-        imei: '',
-        problem: '換電池',
-        price: 1600,
-        repairFee: 1600,
-        deposit: 0,
-        checkFee: 0,
-        status: '已取件',
-        date: '2026-07-15',
-        isOutsourced: false
+        id: 'p1',
+        partNo: '1',
+        name: '1',
+        category: '1',
+        model: '1',
+        stock: 0,
+        cost: 0
       }
     ];
   });
@@ -174,16 +150,35 @@ export default function RepairManagementPage() {
     }
   }, [repairs]);
 
-  // 搜尋與篩選狀態
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pos_parts_inventory_v3', JSON.stringify(parts));
+    }
+  }, [parts]);
+
+  // 維修單搜尋與篩選狀態
   const [searchKeyword, setSearchKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState('全部狀態');
   const [showTrash, setShowTrash] = useState(false);
+
+  // 零件搜尋與 Modal 狀態
+  const [partSearchKeyword, setPartSearchKeyword] = useState('');
+  const [isAddPartModalOpen, setIsAddPartModalOpen] = useState(false);
+  const [selectedPart, setSelectedPart] = useState<PartItem | null>(null);
+
+  // 新增零件表單欄位
+  const [newPartNo, setNewPartNo] = useState('');
+  const [newPartName, setNewPartName] = useState('');
+  const [newPartCategory, setNewPartCategory] = useState('');
+  const [newPartModel, setNewPartModel] = useState('');
+  const [newPartStock, setNewPartStock] = useState<number>(0);
+  const [newPartCost, setNewPartCost] = useState<number>(0);
 
   // 新增維修單 Modal 狀態
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'general' | 'outsource'>('general');
 
-  // 表單欄位
+  // 維修單表單欄位
   const [custInput, setCustInput] = useState('');
   const [isCustDropdownOpen, setIsCustDropdownOpen] = useState(false);
   const [brand, setBrand] = useState('');
@@ -240,7 +235,6 @@ export default function RepairManagementPage() {
 
     const namePart = custInput.split(' ')[0];
     const phonePart = custInput.includes('(') ? custInput.split('(')[1].replace(')', '') : '';
-
     const randomNo = Math.floor(10000 + Math.random() * 90000);
     const orderNo = `RO${getTodayStr().replace(/-/g, '').slice(2)}${String(randomNo).slice(-5)}`;
 
@@ -270,7 +264,6 @@ export default function RepairManagementPage() {
     setRepairs([newRecord, ...repairs]);
     alert(`成功新增維修單：${orderNo}`);
     setIsModalOpen(false);
-    // 重置表單
     setCustInput('');
     setBrand('');
     setModel('');
@@ -287,15 +280,53 @@ export default function RepairManagementPage() {
     setPassword('');
   };
 
+  const handleSavePart = () => {
+    if (!newPartName) {
+      alert('請填寫零件名稱');
+      return;
+    }
+    const partNoToUse = newPartNo.trim() ? newPartNo.trim() : `P${Math.floor(1000 + Math.random() * 9000)}`;
+    const newPart: PartItem = {
+      id: `part-${Date.now()}`,
+      partNo: partNoToUse,
+      name: newPartName,
+      category: newPartCategory || '未分類',
+      model: newPartModel || '通用',
+      stock: Number(newPartStock) || 0,
+      cost: Number(newPartCost) || 0
+    };
+
+    setParts([newPart, ...parts]);
+    alert(`成功新增零件：${newPart.name}`);
+    setIsAddPartModalOpen(false);
+    setNewPartNo('');
+    setNewPartName('');
+    setNewPartCategory('');
+    setNewPartModel('');
+    setNewPartStock(0);
+    setNewPartCost(0);
+  };
+
+  const handleDeletePart = (id: string) => {
+    if (confirm('確定要刪除此零件嗎？')) {
+      setParts(parts.filter(p => p.id !== id));
+      setSelectedPart(null);
+    }
+  };
+
   const filteredRepairs = repairs.filter(r => {
     const matchKeyword = !searchKeyword || 
       r.orderNo.toLowerCase().includes(searchKeyword.toLowerCase()) ||
       r.customerName.toLowerCase().includes(searchKeyword.toLowerCase()) ||
       r.model.toLowerCase().includes(searchKeyword.toLowerCase()) ||
       r.problem.toLowerCase().includes(searchKeyword.toLowerCase());
-
     const matchStatus = statusFilter === '全部狀態' || r.status === statusFilter;
     return matchKeyword && matchStatus;
+  });
+
+  const filteredParts = parts.filter(p => {
+    const kw = partSearchKeyword.trim().toLowerCase();
+    return !kw || p.name.toLowerCase().includes(kw) || p.partNo.toLowerCase().includes(kw) || p.model.toLowerCase().includes(kw);
   });
 
   const filteredCustomers = customers.filter(c => {
@@ -306,15 +337,25 @@ export default function RepairManagementPage() {
 
   return (
     <div className="flex-1 bg-slate-100 p-8 space-y-6 overflow-y-auto font-sans text-slate-800 min-h-screen">
-      {/* 頂部標題與新增維修單按鈕 */}
+      {/* 頂部標題與按鈕 */}
       <div className="flex justify-between items-center">
         <h1 className="text-xl font-bold text-slate-800">維修管理</h1>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center gap-1.5"
-        >
-          + 新增維修單
-        </button>
+        {activeTab === 'repairs' && (
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center gap-1.5"
+          >
+            + 新增維修單
+          </button>
+        )}
+        {activeTab === 'parts' && (
+          <button
+            onClick={() => setIsAddPartModalOpen(true)}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center gap-1.5"
+          >
+            + 新增零件
+          </button>
+        )}
       </div>
 
       {/* 子頁籤導覽列 */}
@@ -326,9 +367,9 @@ export default function RepairManagementPage() {
         <button onClick={() => setActiveTab('vendors')} className={`pb-1 transition ${activeTab === 'vendors' ? 'text-blue-600 border-b-2 border-blue-600' : 'hover:text-slate-700'}`}>維修廠商</button>
       </div>
 
+      {/* 維修單頁籤 */}
       {activeTab === 'repairs' && (
         <div className="space-y-4">
-          {/* 搜尋與篩選列 */}
           <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/60 flex flex-wrap items-center gap-4">
             <div className="relative flex-1 min-w-[280px]">
               <input
@@ -359,7 +400,6 @@ export default function RepairManagementPage() {
             </label>
           </div>
 
-          {/* 維修單表格 */}
           <div className="bg-white rounded-3xl shadow-sm border border-slate-200/60 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
@@ -416,6 +456,211 @@ export default function RepairManagementPage() {
         </div>
       )}
 
+      {/* 零件庫存頁籤 */}
+      {activeTab === 'parts' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/60">
+            <input
+              type="text"
+              value={partSearchKeyword}
+              onChange={(e) => setPartSearchKeyword(e.target.value)}
+              placeholder="搜尋零件名稱或編號..."
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs"
+            />
+          </div>
+
+          <div className="bg-white rounded-3xl shadow-sm border border-slate-200/60 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 text-slate-400 font-bold bg-slate-50/50">
+                    <th className="p-4">零件編號</th>
+                    <th className="p-4">零件名稱</th>
+                    <th className="p-4">分類</th>
+                    <th className="p-4">適用機型</th>
+                    <th className="p-4">庫存數量</th>
+                    <th className="p-4 text-right">成本價</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredParts.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="text-center py-12 text-slate-400">目前沒有符合的零件庫存</td>
+                    </tr>
+                  ) : (
+                    filteredParts.map((p) => (
+                      <tr 
+                        key={p.id} 
+                        onClick={() => setSelectedPart(p)}
+                        className="hover:bg-blue-50/40 transition cursor-pointer"
+                      >
+                        <td className="p-4 font-mono font-bold text-slate-800">{p.partNo}</td>
+                        <td className="p-4 font-bold text-slate-800">{p.name}</td>
+                        <td className="p-4 text-slate-600">{p.category}</td>
+                        <td className="p-4 text-slate-600">{p.model}</td>
+                        <td className="p-4 font-mono font-bold text-slate-800">{p.stock}</td>
+                        <td className="p-4 text-right font-mono font-bold text-slate-800">${p.cost}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 零件明細彈出視窗 */}
+      {selectedPart && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-xl space-y-6 animate-in fade-in zoom-in duration-150">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="text-sm font-bold text-slate-800">{selectedPart.partNo}</h3>
+              <button onClick={() => setSelectedPart(null)} className="text-slate-400 hover:text-rose-600 text-base">×</button>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              <div>
+                <label className="text-slate-400 block mb-1">零件名稱</label>
+                <div className="font-bold text-slate-800 text-sm">{selectedPart.name}</div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-slate-400 block mb-1">分類</label>
+                  <div className="font-medium text-slate-700">{selectedPart.category}</div>
+                </div>
+                <div>
+                  <label className="text-slate-400 block mb-1">適用機型</label>
+                  <div className="font-medium text-slate-700">{selectedPart.model}</div>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200/60 rounded-2xl p-4 grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-slate-400 block mb-1">庫存數量</label>
+                  <div className="text-lg font-bold font-mono text-slate-800">{selectedPart.stock}</div>
+                </div>
+                <div>
+                  <label className="text-slate-400 block mb-1">成本價</label>
+                  <div className="text-lg font-bold font-mono text-slate-800">${selectedPart.cost}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center pt-2">
+              <button
+                onClick={() => handleDeletePart(selectedPart.id)}
+                className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-bold transition"
+              >
+                刪除此零件
+              </button>
+              <button
+                onClick={() => setSelectedPart(null)}
+                className="px-5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition"
+              >
+                關閉視窗
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 新增零件彈出視窗 */}
+      {isAddPartModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-xl space-y-4">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="text-sm font-bold text-slate-800">新增零件品項</h3>
+              <button onClick={() => setIsAddPartModalOpen(false)} className="text-slate-400 hover:text-rose-600 text-base">×</button>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              <div>
+                <label className="text-slate-400 block mb-1">零件編號 (留空自動產生)</label>
+                <input
+                  type="text"
+                  value={newPartNo}
+                  onChange={(e) => setNewPartNo(e.target.value)}
+                  placeholder="例如：P15P-SCR"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label className="text-slate-400 block mb-1">零件名稱 *</label>
+                <input
+                  type="text"
+                  value={newPartName}
+                  onChange={(e) => setNewPartName(e.target.value)}
+                  placeholder="iPhone 15 Pro OLED 螢幕"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-slate-400 block mb-1">分類</label>
+                  <input
+                    type="text"
+                    value={newPartCategory}
+                    onChange={(e) => setNewPartCategory(e.target.value)}
+                    placeholder="螢幕總成"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-400 block mb-1">適用機型</label>
+                  <input
+                    type="text"
+                    value={newPartModel}
+                    onChange={(e) => setNewPartModel(e.target.value)}
+                    placeholder="iPhone 15 Pro"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-slate-400 block mb-1">初始庫存數量</label>
+                  <input
+                    type="number"
+                    value={newPartStock}
+                    onChange={(e) => setNewPartStock(Number(e.target.value))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-400 block mb-1">預設成本</label>
+                  <input
+                    type="number"
+                    value={newPartCost}
+                    onChange={(e) => setNewPartCost(Number(e.target.value))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  onClick={() => setIsAddPartModalOpen(false)}
+                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold transition"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleSavePart}
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-sm transition"
+                >
+                  確認新增
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 新增維修單 Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -425,7 +670,6 @@ export default function RepairManagementPage() {
               <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-rose-600 text-base">×</button>
             </div>
 
-            {/* 模式切換按鈕 */}
             <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1.5 rounded-2xl">
               <button
                 onClick={() => setModalMode('general')}
@@ -442,7 +686,6 @@ export default function RepairManagementPage() {
             </div>
 
             <div className="space-y-4 text-xs">
-              {/* 客戶欄位 */}
               <div className="space-y-1 relative">
                 <label className="text-slate-400 block">客戶 *</label>
                 <input
@@ -498,7 +741,6 @@ export default function RepairManagementPage() {
                 )}
               </div>
 
-              {/* 品牌與機型 */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-slate-400 block mb-1">品牌</label>
@@ -522,7 +764,6 @@ export default function RepairManagementPage() {
                 </div>
               </div>
 
-              {/* 顏色與序號 */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-slate-400 block mb-1">顏色</label>
@@ -544,7 +785,6 @@ export default function RepairManagementPage() {
                 </div>
               </div>
 
-              {/* 委外專屬欄位 */}
               {modalMode === 'outsource' && (
                 <div>
                   <label className="text-slate-400 block mb-1">委外店家</label>
@@ -558,7 +798,6 @@ export default function RepairManagementPage() {
                 </div>
               )}
 
-              {/* 問題描述 */}
               <div>
                 <label className="text-slate-400 block mb-1">問題描述 *</label>
                 <textarea
@@ -570,7 +809,6 @@ export default function RepairManagementPage() {
                 ></textarea>
               </div>
 
-              {/* 價格欄位 */}
               {modalMode === 'general' ? (
                 <div className="grid grid-cols-4 gap-2">
                   <div>
@@ -611,7 +849,6 @@ export default function RepairManagementPage() {
                 </div>
               )}
 
-              {/* 備註 */}
               <div>
                 <label className="text-slate-400 block mb-1">備註</label>
                 <input
@@ -622,7 +859,6 @@ export default function RepairManagementPage() {
                 />
               </div>
 
-              {/* 手機解鎖密碼 */}
               <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl flex justify-between items-center">
                 <div>
                   <p className="font-bold text-slate-800">客戶手機解鎖密碼</p>
