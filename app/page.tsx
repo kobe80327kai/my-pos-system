@@ -16,6 +16,7 @@ interface CartItem {
   name: string;
   price: number;
   cost: number;
+  rebate: number; // 專門用來記錄方案佣金
   quantity: number;
   type: 'product' | 'plan' | 'custom' | 'repair';
 }
@@ -62,7 +63,6 @@ export default function ControlPage() {
 
   const [activeTab, setActiveTab] = useState<'checkout' | 'records' | 'reports'>('checkout');
 
-  // 銷售紀錄初始資料
   const [salesRecords, setSalesRecords] = useState<SaleRecord[]>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('pos_sales_records');
@@ -84,15 +84,13 @@ export default function ControlPage() {
     ];
   });
 
+  // 客戶預設清空，不帶入任何預設客戶名單
   const [customers, setCustomers] = useState<Customer[]>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('pos_customers');
       if (saved) return JSON.parse(saved);
     }
-    return [
-      { id: 'c1', name: '林活揚', phone: '0956-096936', type: '個人貴賓' },
-      { id: 'c2', name: '王小明', phone: '0912-345678', type: '個人貴賓' }
-    ];
+    return [];
   });
 
   const [plans, setPlans] = useState<PlanItem[]>(() => {
@@ -120,7 +118,7 @@ export default function ControlPage() {
   // 結帳區狀態
   const [cart, setCart] = useState<CartItem[]>([]);
   const [productSearch, setProductSearch] = useState('');
-  const [customerSearch, setCustomerSearch] = useState(''); // 預設完全空白
+  const [customerSearch, setCustomerSearch] = useState(''); // 預設空白
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
   const [planSearch, setPlanSearch] = useState('');
   const [payments, setPayments] = useState<PaymentEntry[]>([
@@ -136,10 +134,8 @@ export default function ControlPage() {
   const [dateFilterMode, setDateFilterMode] = useState<'today' | 'week' | 'month' | 'all' | 'custom'>('today');
   const [expandedRecordIds, setExpandedRecordIds] = useState<string[]>([]);
   
-  // 修改紀錄彈窗狀態
   const [editingRecord, setEditingRecord] = useState<SaleRecord | null>(null);
 
-  // 彈窗控制
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
@@ -158,7 +154,7 @@ export default function ControlPage() {
       if (existing) {
         return prev.map((i) => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
       }
-      return [...prev, { id: item.id, name: item.name, price: item.price, cost: item.cost, quantity: 1, type: 'product' }];
+      return [...prev, { id: item.id, name: item.name, price: item.price, cost: item.cost, rebate: 0, quantity: 1, type: 'product' }];
     });
   };
 
@@ -169,7 +165,8 @@ export default function ControlPage() {
         id: `plan-${plan.id}-${Date.now()}`, 
         name: `[方案] ${plan.name}`, 
         price: 0, 
-        cost: -Number(plan.rebate || 0), // 方案佣金正確代入負成本，使毛利增加
+        cost: 0,
+        rebate: Number(plan.rebate || 0), // 方案佣金正確帶入
         quantity: 1, 
         type: 'plan' 
       }
@@ -189,6 +186,7 @@ export default function ControlPage() {
         name: `[${customType}] ${customName}`,
         price: Number(customPrice) || 0,
         cost: Number(customCost) || 0,
+        rebate: 0,
         quantity: 1,
         type: customType === '自訂配件/商品' ? 'custom' : 'repair'
       }
@@ -234,7 +232,11 @@ export default function ControlPage() {
 
   const totalAmountWithFee = subtotal + totalFeeAmount;
   
+  // 毛利計算：一般商品 (售價-成本)*數量 + 方案佣金
   const baseProfit = cart.reduce((sum, item) => {
+    if (item.type === 'plan') {
+      return sum + (Number(item.price) || 0) + Number(item.rebate || 0);
+    }
     const pPrice = Number(item.price) || 0;
     const pCost = Number(item.cost) || 0;
     return sum + (pPrice - pCost) * item.quantity;
@@ -257,7 +259,12 @@ export default function ControlPage() {
       customerName: customerSearch ? customerSearch.split(' ')[0] : '散客',
       customerType: '個人貴賓',
       salesperson: '管理員',
-      items: cart.map(i => ({ name: i.name, price: i.price, cost: i.cost, quantity: i.quantity })),
+      items: cart.map(i => ({ 
+        name: i.name, 
+        price: i.price, 
+        cost: i.type === 'plan' ? -i.rebate : i.cost, 
+        quantity: i.quantity 
+      })),
       totalAmount: totalAmountWithFee,
       profit: totalProfit,
       paymentInfo: paymentDesc
@@ -266,12 +273,10 @@ export default function ControlPage() {
     setSalesRecords([newRecord, ...salesRecords]);
     alert(`結帳成功！單號：${orderNo}`);
     
-    // 清空購物車與客戶欄位
     setCart([]);
     setCustomerSearch('');
   };
 
-  // 銷售紀錄日期快捷切換
   const handleDateFilterPreset = (mode: 'today' | 'week' | 'month' | 'all') => {
     setDateFilterMode(mode);
     const today = new Date();
@@ -295,7 +300,6 @@ export default function ControlPage() {
     }
   };
 
-  // 篩選銷售紀錄 (支援單號、客戶、經手人員、商品名稱、IMEI 序號)
   const filteredRecords = salesRecords.filter(r => {
     const matchSearch = !recordSearch || 
       r.orderNo.toLowerCase().includes(recordSearch.toLowerCase()) ||
@@ -305,7 +309,6 @@ export default function ControlPage() {
 
     const matchSalesperson = filterSalesperson === '全部門市人員' || r.salesperson === filterSalesperson;
     const matchCustType = filterCustomerType === '全部客戶類型' || r.customerType === filterCustomerType;
-
     const matchDate = (!dateStart || r.date >= dateStart) && (!dateEnd || r.date <= dateEnd);
 
     return matchSearch && matchSalesperson && matchCustType && matchDate;
@@ -331,7 +334,6 @@ export default function ControlPage() {
 
   return (
     <div className="p-8 space-y-6 w-full relative">
-      {/* 頂部快速切換列 */}
       <div className="flex justify-between items-center bg-white px-5 py-3 rounded-2xl shadow-sm border border-slate-200/60">
         <div className="flex items-center gap-2">
           <span className="text-xs text-slate-400 font-medium mr-2">快速切換：</span>
@@ -342,7 +344,6 @@ export default function ControlPage() {
         <div className="text-xs text-slate-600">目前身份：<span className="font-bold text-slate-800">管理員</span></div>
       </div>
 
-      {/* 1. 銷貨結帳畫面 */}
       {activeTab === 'checkout' && (
         <div className="space-y-4">
           <div>
@@ -400,7 +401,6 @@ export default function ControlPage() {
                 <button onClick={() => setCart([])} className="text-[10px] text-slate-400 hover:text-rose-600">清空</button>
               </div>
 
-              {/* 客戶搜尋 (預設完全空白) */}
               <div className="space-y-1 relative">
                 <div className="flex justify-between items-center text-[10px] text-slate-400">
                   <span>客戶 (選填，個人貴賓可不選)</span>
@@ -425,19 +425,23 @@ export default function ControlPage() {
                     >
                       (不選擇客戶 / 預設不填)
                     </div>
-                    {filteredCustomers.map(c => (
-                      <div
-                        key={c.id}
-                        onClick={() => {
-                          setCustomerSearch(`${c.name} (${c.phone})`);
-                          setIsCustomerDropdownOpen(false);
-                        }}
-                        className="px-3 py-2 text-xs hover:bg-blue-50 cursor-pointer flex justify-between"
-                      >
-                        <span className="font-bold text-slate-800">{c.name}</span>
-                        <span className="text-slate-400 font-mono">{c.phone}</span>
-                      </div>
-                    ))}
+                    {filteredCustomers.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-slate-400 text-center">尚無客戶資料，請點擊上方建立會員</div>
+                    ) : (
+                      filteredCustomers.map(c => (
+                        <div
+                          key={c.id}
+                          onClick={() => {
+                            setCustomerSearch(`${c.name} (${c.phone})`);
+                            setIsCustomerDropdownOpen(false);
+                          }}
+                          className="px-3 py-2 text-xs hover:bg-blue-50 cursor-pointer flex justify-between"
+                        >
+                          <span className="font-bold text-slate-800">{c.name}</span>
+                          <span className="text-slate-400 font-mono">{c.phone}</span>
+                        </div>
+                      ))
+                    )}
                   </div>
                 )}
               </div>
@@ -448,8 +452,10 @@ export default function ControlPage() {
                 ) : (
                   cart.map((i, index) => {
                     const itemPrice = Number(i.price) || 0;
-                    const itemCost = Number(i.cost) || 0;
-                    const itemProfit = (itemPrice - itemCost) * i.quantity;
+                    const itemProfit = i.type === 'plan' 
+                      ? itemPrice + Number(i.rebate || 0) 
+                      : (itemPrice - Number(i.cost || 0)) * i.quantity;
+
                     return (
                       <div key={i.id} className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 space-y-1 text-xs">
                         <div className="flex justify-between items-center font-bold text-slate-800">
@@ -571,7 +577,6 @@ export default function ControlPage() {
         </div>
       )}
 
-      {/* 2. 銷售紀錄畫面 (完整對齊您附圖的查詢、日期、修改、明細展開功能) */}
       {activeTab === 'records' && (
         <div className="space-y-4">
           <div>
@@ -580,7 +585,6 @@ export default function ControlPage() {
           </div>
 
           <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/60 space-y-4">
-            {/* 搜尋與篩選列 */}
             <div className="flex flex-wrap items-center gap-3">
               <input
                 type="text"
@@ -612,7 +616,6 @@ export default function ControlPage() {
               </div>
             </div>
 
-            {/* 今日、本週、本月、全部快速切換按鈕 */}
             <div className="flex items-center gap-2 pt-1">
               <button onClick={() => handleDateFilterPreset('today')} className={`px-3.5 py-1 rounded-xl text-xs font-bold transition ${dateFilterMode === 'today' ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>今日</button>
               <button onClick={() => handleDateFilterPreset('week')} className={`px-3.5 py-1 rounded-xl text-xs font-bold transition ${dateFilterMode === 'week' ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>本週</button>
@@ -703,7 +706,6 @@ export default function ControlPage() {
         </div>
       )}
 
-      {/* 3. 業績報表畫面 */}
       {activeTab === 'reports' && (
         <div className="space-y-4">
           <h1 className="text-xl font-bold text-slate-800">業績報表</h1>
@@ -714,7 +716,6 @@ export default function ControlPage() {
         </div>
       )}
 
-      {/* 彈跳視窗：修改銷售紀錄 */}
       {editingRecord && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-6 w-full max-w-lg space-y-4 shadow-xl">
@@ -781,7 +782,6 @@ export default function ControlPage() {
         </div>
       )}
 
-      {/* 彈跳視窗：選擇電信方案 */}
       {isPlanModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-6 w-full max-w-lg space-y-4 shadow-xl">
@@ -817,7 +817,6 @@ export default function ControlPage() {
         </div>
       )}
 
-      {/* 彈跳視窗：新增自訂項目 / 維修服務 */}
       {isCustomModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-6 w-full max-w-md space-y-4 shadow-xl">
@@ -851,7 +850,6 @@ export default function ControlPage() {
         </div>
       )}
 
-      {/* 彈跳視窗：快速建立會員 */}
       {isCustomerModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-6 w-full max-w-sm space-y-4 shadow-xl">
