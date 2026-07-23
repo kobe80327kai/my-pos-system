@@ -71,17 +71,18 @@ export default function ControlPage() {
     return [];
   });
 
-  // 內建預設客戶，避免抓不到時空白
   const [customers, setCustomers] = useState<Customer[]>([
     { id: 'c1', name: '王小明', phone: '0912345678', type: '個人貴賓' },
-    { id: 'c2', name: '林美麗', phone: '0987654321', type: '個人貴賓' }
+    { id: 'c2', name: '林美麗', phone: '0987654321', type: '個人貴賓' },
+    { id: 'c3', name: '測試客戶', phone: '0900123456', type: '個人貴賓' }
   ]);
 
   const [plans, setPlans] = useState<PlanItem[]>([
-    { id: 'pl1', name: '中華電信 5G 1399 (30期)', telecom: '中華電信', monthlyFee: 1399, rebate: 5000 },
-    { id: 'pl2', name: '台灣大哥大 4G 688 (24期)', telecom: '台灣大哥大', monthlyFee: 688, rebate: 3000 },
-    { id: 'pl3', name: '遠傳電信 5G 999 (24期)', telecom: '遠傳電信', monthlyFee: 999, rebate: 4000 },
-    { id: 'pl4', name: '699 專案', telecom: '通用', monthlyFee: 699, rebate: 2500 }
+    { id: 'pl1', name: 'NP799 5G 專案', telecom: '中華電信', monthlyFee: 799, rebate: 3500 },
+    { id: 'pl2', name: '中華電信 5G 1399 (30期)', telecom: '中華電信', monthlyFee: 1399, rebate: 5000 },
+    { id: 'pl3', name: '台灣大哥大 4G 688 (24期)', telecom: '台灣大哥大', monthlyFee: 688, rebate: 3000 },
+    { id: 'pl4', name: '遠傳電信 5G 999 (24期)', telecom: '遠傳電信', monthlyFee: 999, rebate: 4000 },
+    { id: 'pl5', name: '699 專案', telecom: '通用', monthlyFee: 699, rebate: 2500 }
   ]);
 
   const products: Product[] = [
@@ -90,7 +91,6 @@ export default function ControlPage() {
     { id: 'p3', name: 'iPhone 15 128G', price: 25900, cost: 23000, stock: 3, category: '手機' },
   ];
 
-  // 強制同步客戶資料
   const refreshCustomers = () => {
     if (typeof window !== 'undefined') {
       const savedCust = localStorage.getItem('pos_customers') || localStorage.getItem('customers');
@@ -98,7 +98,11 @@ export default function ControlPage() {
         try {
           const parsed = JSON.parse(savedCust);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            setCustomers(parsed);
+            setCustomers(prev => {
+              const combined = [...prev, ...parsed];
+              const unique = Array.from(new Map(combined.map(c => [c.phone, c])).values());
+              return unique;
+            });
           }
         } catch (e) {
           console.error(e);
@@ -145,24 +149,13 @@ export default function ControlPage() {
   const [newCustName, setNewCustName] = useState('');
   const [newCustPhone, setNewCustPhone] = useState('');
 
-  const addToCart = (item: Product) => {
-    setCart((prev) => {
-      const existing = prev.find((i) => i.id === item.id);
-      if (existing) {
-        return prev.map((i) => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
-      }
-      return [...prev, { id: item.id, name: item.name, price: item.price, cost: item.cost, rebate: 0, quantity: 1, type: 'product' }];
-    });
-  };
-
   const addPlanToCart = (plan: PlanItem) => {
-    // 確保方案一定有預設佣金，若為0則給予2500預設值方便測試
     const planRebate = Number(plan.rebate) > 0 ? Number(plan.rebate) : 2500;
     setCart((prev) => [
       ...prev,
       { 
         id: `plan-${plan.id}-${Date.now()}`, 
-        name: `[方案] ${plan.name}`, 
+        name: `[方案] ${plan.name} (${plan.telecom})`, 
         price: 0, 
         cost: 0,
         rebate: planRebate,
@@ -171,6 +164,7 @@ export default function ControlPage() {
       }
     ]);
     setIsPlanModalOpen(false);
+    setPlanSearch('');
   };
 
   const handleAddCustomItem = () => {
@@ -209,6 +203,7 @@ export default function ControlPage() {
     setNewCustName('');
     setNewCustPhone('');
     setIsCustomerModalOpen(false);
+    setIsCustomerDropdownOpen(false);
   };
 
   const getSingleFeeRate = (method: string, inst: string) => {
@@ -231,7 +226,6 @@ export default function ControlPage() {
 
   const totalAmountWithFee = subtotal + totalFeeAmount;
   
-  // 毛利計算：明確將方案的 rebate 累加進去
   const baseProfit = cart.reduce((sum, item) => {
     if (item.type === 'plan') {
       return sum + Number(item.rebate || 0);
@@ -322,13 +316,22 @@ export default function ControlPage() {
     !productSearch || p.name.includes(productSearch) || p.id.includes(productSearch)
   );
 
-  const filteredCustomers = customers.filter(c => 
-    !customerSearch || c.name.includes(customerSearch) || c.phone.includes(customerSearch)
-  );
+  // 寬鬆模糊搜尋客戶：只要有輸入文字，就比對名字或電話
+  const filteredCustomers = customers.filter(c => {
+    if (!customerSearch) return true;
+    const keyword = customerSearch.trim().toLowerCase();
+    const nameMatch = c.name.toLowerCase().includes(keyword);
+    const phoneMatch = c.phone.includes(keyword);
+    return nameMatch || phoneMatch;
+  });
 
-  const filteredPlans = plans.filter(pl =>
-    !planSearch || pl.name.includes(planSearch) || pl.telecom.includes(planSearch)
-  );
+  const filteredPlans = plans.filter(pl => {
+    if (!planSearch) return true;
+    const keyword = planSearch.trim().toLowerCase();
+    return pl.name.toLowerCase().includes(keyword) || 
+           pl.telecom.toLowerCase().includes(keyword) || 
+           pl.id.toLowerCase().includes(keyword);
+  });
 
   return (
     <div className="p-8 space-y-6 w-full relative">
@@ -416,11 +419,11 @@ export default function ControlPage() {
                     refreshCustomers();
                     setIsCustomerDropdownOpen(true);
                   }}
-                  placeholder="搜尋客戶姓名 / 電話..."
+                  placeholder="搜尋客戶姓名 / 電話 (例如 0900)..."
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium"
                 />
                 {isCustomerDropdownOpen && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-20 max-h-40 overflow-y-auto">
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-20 max-h-52 overflow-y-auto">
                     <div 
                       onClick={() => { setCustomerSearch(''); setIsCustomerDropdownOpen(false); }}
                       className="px-3 py-2 text-xs text-slate-400 hover:bg-slate-50 cursor-pointer border-b"
@@ -428,7 +431,19 @@ export default function ControlPage() {
                       (不選擇客戶 / 預設不填)
                     </div>
                     {filteredCustomers.length === 0 ? (
-                      <div className="px-3 py-2 text-xs text-slate-400 text-center">尚無客戶資料，請從上方新增</div>
+                      <div className="p-3 text-center space-y-2 bg-slate-50/50">
+                        <p className="text-xs text-slate-500">找不到符合「{customerSearch}」的客戶</p>
+                        <button 
+                          onClick={() => {
+                            setNewCustPhone(customerSearch.match(/^\d+$/) ? customerSearch : '');
+                            setIsCustomerDropdownOpen(false);
+                            setIsCustomerModalOpen(true);
+                          }}
+                          className="px-3 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-sm"
+                        >
+                          + 立即新增客戶「{customerSearch}」
+                        </button>
+                      </div>
                     ) : (
                       filteredCustomers.map(c => (
                         <div
@@ -437,7 +452,7 @@ export default function ControlPage() {
                             setCustomerSearch(`${c.name} (${c.phone})`);
                             setIsCustomerDropdownOpen(false);
                           }}
-                          className="px-3 py-2 text-xs hover:bg-blue-50 cursor-pointer flex justify-between"
+                          className="px-3 py-2.5 text-xs hover:bg-blue-50 cursor-pointer flex justify-between items-center border-b border-slate-50"
                         >
                           <span className="font-bold text-slate-800">{c.name}</span>
                           <span className="text-slate-400 font-mono">{c.phone}</span>
@@ -814,19 +829,38 @@ export default function ControlPage() {
               type="text"
               value={planSearch}
               onChange={(e) => setPlanSearch(e.target.value)}
-              placeholder="搜尋方案名稱或代碼..."
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs"
+              placeholder="搜尋方案名稱或代碼 (例如：NP799)..."
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-medium"
             />
 
             <div className="space-y-2 max-h-60 overflow-y-auto">
+              <div className="text-[10px] text-slate-400 px-1">可用方案清單 (點擊即可帶入)：</div>
               {filteredPlans.length === 0 ? (
-                <p className="text-xs text-slate-400 text-center py-8">找不到符合的方案</p>
+                <div className="p-6 text-center space-y-3 bg-slate-50 rounded-2xl">
+                  <p className="text-xs text-slate-500">找不到符合「{planSearch}」的方案</p>
+                  <button 
+                    onClick={() => {
+                      const newPl: PlanItem = {
+                        id: `custom-pl-${Date.now()}`,
+                        name: planSearch,
+                        telecom: '自訂',
+                        monthlyFee: 799,
+                        rebate: 3000
+                      };
+                      setPlans([newPl, ...plans]);
+                      addPlanToCart(newPl);
+                    }}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-sm"
+                  >
+                    + 直接建立並代入「{planSearch}」方案
+                  </button>
+                </div>
               ) : (
                 filteredPlans.map((pl) => (
                   <div key={pl.id} onClick={() => addPlanToCart(pl)} className="p-3.5 border border-slate-100 rounded-2xl cursor-pointer hover:bg-blue-50/60 flex justify-between items-center transition">
                     <div>
                       <p className="text-xs font-bold text-slate-800">{pl.name}</p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">月租: ${pl.monthlyFee} | 佣金: ${pl.rebate}</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">電信商: {pl.telecom} | 月租: ${pl.monthlyFee} | 佣金: ${pl.rebate}</p>
                     </div>
                     <span className="px-3 py-1 bg-blue-50 text-blue-600 rounded-xl text-[10px] font-bold">+ 選擇</span>
                   </div>
