@@ -4,10 +4,10 @@
 import React, { useState } from "react";
 
 export default function PosSystem() {
-  const [currentMenu, setCurrentMenu] = useState("销货结帐");
+  const [currentMenu, setCurrentMenu] = useState("控制台");
   const [activeTab, setActiveTab] = useState<"checkout" | "records" | "reports">("checkout");
 
-  // ---------------- 銷貨結帳 States (完全對應截圖) ----------------
+  // 銷貨結帳 States
   const [cart, setCart] = useState<any[]>([]);
   const [member, setMember] = useState("林活揚 (0956-096936)");
   const [paymentMethod, setPaymentMethod] = useState("現金");
@@ -15,7 +15,6 @@ export default function PosSystem() {
   const [planSearch, setPlanSearch] = useState("");
   const [productSearch, setProductSearch] = useState("");
 
-  // 真實方案資料庫 (對應方案管理)
   const [posPlans] = useState([
     { id: 1, name: "中華電信 5G 1399 (30期)", monthly: 1399, commission: 5000, code: "CHT1399" },
     { id: 2, name: "台灣大哥大 4G 688 (24期)", monthly: 688, commission: 3000, code: "TWM688" },
@@ -28,7 +27,7 @@ export default function PosSystem() {
     { id: 3, name: "iPhone 15 128G", price: 25900, stock: 3, cost: 23000, imei: "IMEI987654321" },
   ]);
 
-  // ---------------- 銷售紀錄 States ----------------
+  // 銷售紀錄 States
   const [records, setRecords] = useState<any[]>([
     {
       id: "SD260723119",
@@ -52,7 +51,6 @@ export default function PosSystem() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingRecord, setEditingRecord] = useState<any | null>(null);
 
-  // 日期快選邏輯 (今日、本週、本月、全部)
   const handleDatePreset = (mode: string) => {
     setDateFilterMode(mode);
     const today = new Date();
@@ -78,12 +76,10 @@ export default function PosSystem() {
     }
   };
 
-  // 加入購物車
   const addToCart = (item: any) => {
     setCart([...cart, { ...item, qty: 1 }]);
   };
 
-  // 結帳送出
   const handleCheckout = () => {
     if (cart.length === 0) {
       alert("購物車是空的！");
@@ -108,7 +104,6 @@ export default function PosSystem() {
     setActiveTab("records");
   };
 
-  // 過濾銷售紀錄（支援單號、商品名稱、IMEI、序號、日期區間）
   const filteredRecords = records.filter((rec) => {
     const matchSearch =
       rec.id.toLowerCase().includes(recordSearch.toLowerCase()) ||
@@ -130,7 +125,7 @@ export default function PosSystem() {
 
   return (
     <div className="min-h-screen bg-[#f1f5f9] text-slate-800 flex font-sans">
-      {/* 左側深色側邊欄 (完全保留您的設計) */}
+      {/* 單一左側深色導覽列 */}
       <aside className="w-64 bg-[#0f172a] text-slate-300 flex flex-col justify-between shrink-0 shadow-xl">
         <div className="p-6 space-y-6">
           <div>
@@ -179,7 +174,6 @@ export default function PosSystem() {
 
       {/* 右側主內容區 */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* 頂部快捷切換列 */}
         <header className="bg-white border-b border-slate-200 px-8 py-3 flex justify-between items-center shadow-sm">
           <div className="flex items-center space-x-4">
             <span className="text-sm font-medium text-slate-500">快速切換：</span>
@@ -215,9 +209,7 @@ export default function PosSystem() {
           </div>
         </header>
 
-        {/* 內容區域 */}
         <main className="flex-1 p-8 overflow-y-auto">
-          {/* ================= 1. 銷貨結帳頁面 (完全對應您的截圖) ================= */}
           {activeTab === "checkout" && (
             <div className="max-w-7xl mx-auto space-y-6">
               <div>
@@ -226,9 +218,7 @@ export default function PosSystem() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* 左側選單區 */}
                 <div className="md:col-span-2 space-y-6">
-                  {/* 選擇方案區塊 */}
                   <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
                     <div className="flex justify-between items-center">
                       <span className="text-sm font-bold text-slate-900">選擇方案</span>
@@ -250,7 +240,6 @@ export default function PosSystem() {
                     </div>
                   </div>
 
-                  {/* 加入商品區塊 */}
                   <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
                     <span className="text-sm font-bold text-slate-900">加入商品</span>
                     <input
@@ -288,7 +277,6 @@ export default function PosSystem() {
                   </div>
                 </div>
 
-                {/* 右側購物車與結帳摘要區 (完全對應您的截圖) */}
                 <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6 h-fit">
                   <div className="flex justify-between items-center border-b border-slate-100 pb-3">
                     <div className="flex items-center space-x-2">
@@ -364,7 +352,6 @@ export default function PosSystem() {
             </div>
           )}
 
-          {/* ================= 2. 銷售紀錄頁面 ================= */}
           {activeTab === "records" && (
             <div className="max-w-7xl mx-auto space-y-6">
               <div>
@@ -372,7 +359,6 @@ export default function PosSystem() {
                 <p className="text-sm text-slate-500 mt-1">查詢與管理銷售訂單紀錄。</p>
               </div>
 
-              {/* 搜尋與篩選面板 */}
               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
                 <div className="flex flex-wrap gap-3 items-center">
                   <input
@@ -418,7 +404,6 @@ export default function PosSystem() {
                   </div>
                 </div>
 
-                {/* 今日、本週、本月、全部按鈕 */}
                 <div className="flex space-x-2 pt-2 border-t border-slate-100">
                   {["今日", "本週", "本月", "全部"].map((tag) => (
                     <button
@@ -436,7 +421,6 @@ export default function PosSystem() {
                 </div>
               </div>
 
-              {/* 紀錄列表 */}
               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="p-4 border-b border-slate-100 text-sm text-slate-500">
                   共 <span className="font-semibold text-slate-900">{filteredRecords.length}</span> 筆紀錄
@@ -488,7 +472,6 @@ export default function PosSystem() {
                           </div>
                         </div>
 
-                        {/* 展開明細 */}
                         {isExpanded && (
                           <div className="bg-slate-50/80 px-6 py-4 border-t border-slate-100 space-y-2">
                             <div className="text-xs font-bold text-slate-500 mb-2">銷售明細：</div>
@@ -512,7 +495,6 @@ export default function PosSystem() {
             </div>
           )}
 
-          {/* ================= 3. 業績報表頁面 ================= */}
           {activeTab === "reports" && (
             <div className="max-w-7xl mx-auto space-y-6">
               <h1 className="text-2xl font-bold text-slate-900">業績報表</h1>
@@ -524,7 +506,6 @@ export default function PosSystem() {
         </main>
       </div>
 
-      {/* ================= 選擇電信方案彈窗 ================= */}
       {showPlanModal && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 space-y-4 relative">
@@ -575,7 +556,6 @@ export default function PosSystem() {
         </div>
       )}
 
-      {/* ================= 修改銷售紀錄彈窗 ================= */}
       {editingRecord && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 relative">
