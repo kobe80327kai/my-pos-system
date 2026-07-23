@@ -73,7 +73,6 @@ export default function ControlPage() {
 
   const [activeTab, setActiveTab] = useState<'checkout' | 'records' | 'reports'>('checkout');
 
-  // 1. 銷售紀錄
   const [salesRecords, setSalesRecords] = useState<SaleRecord[]>(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -84,7 +83,6 @@ export default function ControlPage() {
     return [];
   });
 
-  // 2. 客戶資料
   const [customers, setCustomers] = useState<Customer[]>(() => {
     const defaultCusts: Customer[] = [
       { id: 'CST00001', name: '林活揚', phone: '0956-096936', type: '舊客', gender: '男' }
@@ -105,7 +103,6 @@ export default function ControlPage() {
     return defaultCusts;
   });
 
-  // 3. 方案資料
   const [plans, setPlans] = useState<PlanItem[]>(() => {
     const defaultPlans: PlanItem[] = [
       { 
@@ -144,7 +141,6 @@ export default function ControlPage() {
     { id: 'p3', name: 'iPhone 15 128G', price: 25900, cost: 23000, stock: 3, category: '手機' },
   ];
 
-  // 自動同步至 localStorage
   useEffect(() => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('pos_customers_v3', JSON.stringify(customers));
@@ -163,7 +159,6 @@ export default function ControlPage() {
     }
   }, [salesRecords]);
 
-  // 結帳頁面狀態
   const [cart, setCart] = useState<CartItem[]>([]);
   const [productSearch, setProductSearch] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
@@ -173,7 +168,6 @@ export default function ControlPage() {
     { id: 'pay-1', method: '現金', installments: '3' }
   ]);
 
-  // 銷售紀錄過濾狀態
   const [recordSearch, setRecordSearch] = useState('');
   const [filterSalesperson, setFilterSalesperson] = useState('全部門市人員');
   const [filterCustomerType, setFilterCustomerType] = useState('全部客戶類型');
@@ -182,22 +176,18 @@ export default function ControlPage() {
   const [dateFilterMode, setDateFilterMode] = useState<'today' | 'week' | 'month' | 'all' | 'custom'>('today');
   const [expandedRecordIds, setExpandedRecordIds] = useState<string[]>([]);
 
-  // 彈窗狀態
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
 
-  // 自訂項目表單
   const [customType, setCustomType] = useState<'自訂配件/商品' | '維修服務'>('自訂配件/商品');
   const [customName, setCustomName] = useState('');
   const [customPrice, setCustomPrice] = useState<number>(0);
   const [customCost, setCustomCost] = useState<number>(0);
 
-  // 新增客戶表單
   const [newCustName, setNewCustName] = useState('');
   const [newCustPhone, setNewCustPhone] = useState('');
 
-  // 加入方案到購物車
   const addPlanToCart = (plan: PlanItem) => {
     const planRebate = Number(plan.storeRebate) > 0 ? Number(plan.storeRebate) : 2500;
     setCart((prev) => [
@@ -428,7 +418,6 @@ export default function ControlPage() {
 
       {/* 右側主內容區 */}
       <main className="flex-1 bg-slate-100 p-8 space-y-6 overflow-y-auto">
-        {/* 頂部導覽列：僅保留 銷貨結帳、銷售紀錄、業績報表 */}
         <div className="flex justify-between items-center bg-white px-5 py-3 rounded-2xl shadow-sm border border-slate-200/60">
           <div className="flex items-center gap-3">
             <span className="text-xs text-slate-400 font-medium">快速切換：</span>
@@ -702,7 +691,6 @@ export default function ControlPage() {
           </div>
         )}
 
-        {/* 銷售紀錄頁面 */}
         {activeTab === 'records' && (
           <div className="space-y-4">
             <div>
@@ -836,7 +824,6 @@ export default function ControlPage() {
           </div>
         )}
 
-        {/* 業績報表頁面 */}
         {activeTab === 'reports' && (
           <div className="space-y-4">
             <div>
@@ -864,7 +851,6 @@ export default function ControlPage() {
           </div>
         )}
 
-        {/* 方案選擇彈窗 */}
         {isPlanModalOpen && (
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-3xl p-6 max-w-2xl w-full shadow-xl space-y-4 max-h-[80vh] flex flex-col">
@@ -894,7 +880,6 @@ export default function ControlPage() {
           </div>
         )}
 
-        {/* 自訂項目彈窗 */}
         {isCustomModalOpen && (
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-xl space-y-4">
@@ -928,7 +913,6 @@ export default function ControlPage() {
           </div>
         )}
 
-        {/* 快速建立會員彈窗 */}
         {isCustomerModalOpen && (
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-xl space-y-4">
