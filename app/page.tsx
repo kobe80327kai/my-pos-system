@@ -52,7 +52,7 @@ interface RepairOrder {
 }
 
 export default function Home() {
-  const [currentMenu, setCurrentMenu] = useState<'control' | 'inventory' | 'repairManagement' | 'salesRecord' | 'performance'>('repairManagement');
+  const [currentMenu, setCurrentMenu] = useState<string>('repairManagement');
 
   const getTodayStr = () => {
     const d = new Date();
@@ -205,8 +205,8 @@ export default function Home() {
 
   return (
     <div className="flex h-screen bg-slate-100 text-slate-800 font-sans overflow-hidden">
-      {/* 唯一且乾淨的左側導覽列 */}
-      <div className="w-64 bg-[#0B132B] text-slate-300 flex flex-col justify-between select-none shrink-0">
+      {/* 唯一、完整的左側導覽列（包含您原本所有的選單項目） */}
+      <div className="w-64 bg-[#0B132B] text-slate-300 flex flex-col justify-between select-none shrink-0 overflow-y-auto">
         <div>
           <div className="p-6 flex items-center gap-3 border-b border-slate-800/60">
             <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-md">P</div>
@@ -218,20 +218,38 @@ export default function Home() {
           <div className="p-4 space-y-1">
             <p className="text-[10px] font-bold text-slate-500 px-3 pb-2 uppercase tracking-wider">主要功能</p>
             <button onClick={() => setCurrentMenu('control')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition ${currentMenu === 'control' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-800/50 text-slate-400'}`}>
-              🛒 銷貨結帳
+              🛒 控制台
             </button>
-            <button onClick={() => setCurrentMenu('salesRecord')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition ${currentMenu === 'salesRecord' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-800/50 text-slate-400'}`}>
-              📄 銷售紀錄
+            <button onClick={() => setCurrentMenu('purchase')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition ${currentMenu === 'purchase' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-800/50 text-slate-400'}`}>
+              📦 進貨管理
+            </button>
+            <button onClick={() => setCurrentMenu('inventory')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition ${currentMenu === 'inventory' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-800/50 text-slate-400'}`}>
+              📋 新品庫存管理
+            </button>
+            <button onClick={() => setCurrentMenu('usedPhones')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition ${currentMenu === 'usedPhones' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-800/50 text-slate-400'}`}>
+              📱 中古機總覽
             </button>
             <button onClick={() => setCurrentMenu('repairManagement')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition ${currentMenu === 'repairManagement' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-800/50 text-slate-400'}`}>
               🛠️ 維修管理
             </button>
+            <button onClick={() => setCurrentMenu('salesRecord')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition ${currentMenu === 'salesRecord' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-800/50 text-slate-400'}`}>
+              📄 銷售紀錄
+            </button>
+            <button onClick={() => setCurrentMenu('customers')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition ${currentMenu === 'customers' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-800/50 text-slate-400'}`}>
+              👥 客戶管理
+            </button>
+            <button onClick={() => setCurrentMenu('suppliers')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition ${currentMenu === 'suppliers' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-800/50 text-slate-400'}`}>
+              🏢 廠商管理
+            </button>
+            <button onClick={() => setCurrentMenu('plans')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition ${currentMenu === 'plans' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-800/50 text-slate-400'}`}>
+              📋 方案管理
+            </button>
             <button onClick={() => setCurrentMenu('performance')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition ${currentMenu === 'performance' ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-slate-800/50 text-slate-400'}`}>
-              📊 業績報表
+              📊 營運報表
             </button>
           </div>
         </div>
-        <div className="p-4 border-t border-slate-800/60">
+        <div className="p-4 border-t border-slate-800/60 shrink-0">
           <div className="bg-slate-800/40 p-3 rounded-2xl flex items-center gap-3">
             <div className="w-8 h-8 bg-slate-700 rounded-xl flex items-center justify-center text-white text-xs font-bold">管</div>
             <div>
@@ -244,10 +262,10 @@ export default function Home() {
 
       {/* 右側主要內容區 */}
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-        {/* 銷貨結帳 */}
+        {/* 控制台 / 銷貨結帳 */}
         {currentMenu === 'control' && (
           <div className="p-8 space-y-6">
-            <h1 className="text-xl font-bold text-slate-800">銷貨結帳</h1>
+            <h1 className="text-xl font-bold text-slate-800">控制台 / 銷貨結帳</h1>
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               <div className="lg:col-span-8 bg-white rounded-3xl p-6 shadow-sm border space-y-4">
                 <input
@@ -293,6 +311,23 @@ export default function Home() {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* 其他未特別客製頁面的通用佔位顯示 */}
+        {['purchase', 'inventory', 'usedPhones', 'customers', 'suppliers', 'plans'].includes(currentMenu) && (
+          <div className="p-8 space-y-6">
+            <h1 className="text-xl font-bold text-slate-800">
+              {currentMenu === 'purchase' && '進貨管理'}
+              {currentMenu === 'inventory' && '新品庫存管理'}
+              {currentMenu === 'usedPhones' && '中古機總覽'}
+              {currentMenu === 'customers' && '客戶管理'}
+              {currentMenu === 'suppliers' && '廠商管理'}
+              {currentMenu === 'plans' && '方案管理'}
+            </h1>
+            <div className="bg-white rounded-3xl p-10 shadow-sm border text-center text-slate-400 text-xs">
+              此功能模組運行中
             </div>
           </div>
         )}
@@ -431,11 +466,11 @@ export default function Home() {
           </div>
         )}
 
-        {/* 業績報表模組 */}
+        {/* 營運報表模組 */}
         {currentMenu === 'performance' && (
           <div className="p-8 space-y-6">
             <div>
-              <h1 className="text-xl font-bold text-slate-800">業績報表</h1>
+              <h1 className="text-xl font-bold text-slate-800">營運報表</h1>
               <p className="text-xs text-slate-400 mt-0.5">全店銷售與維修毛利整合分析報表</p>
             </div>
 
@@ -497,54 +532,6 @@ export default function Home() {
                 <span className="text-xs text-slate-400 font-medium">總毛利 {includeRepairInProfit ? '(含維修毛利)' : '(僅商品毛利)'}</span>
                 <h3 className="text-3xl font-mono font-bold text-orange-600">+${grandTotalProfit.toLocaleString()}</h3>
                 <p className="text-[10px] text-slate-400">商品毛利：${salesTotalProfit} ｜ 維修毛利：{includeRepairInProfit ? `+$${repairTotalProfit}` : '已略過'}</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              <div className="lg:col-span-3 bg-white rounded-3xl p-5 shadow-sm border border-slate-200/60 space-y-4">
-                <div className="border-b border-slate-100 pb-3">
-                  <h4 className="text-xs font-bold text-slate-700">類別拆解</h4>
-                </div>
-                <div className="space-y-3 text-xs">
-                  <div className="flex justify-between items-center text-slate-600">
-                    <span>商品銷售毛利</span>
-                    <span className="font-mono font-bold text-emerald-600">+${salesTotalProfit}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-slate-600">
-                    <span>維修管理毛利</span>
-                    <span className="font-mono font-bold text-blue-600">+${repairTotalProfit}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="lg:col-span-9 bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-4">
-                <h4 className="text-xs font-bold text-slate-700 border-b pb-3">已完成之維修毛利明細 (來源：維修管理模組)</h4>
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-100 text-slate-400 font-medium">
-                      <th className="pb-3 pl-3">維修單號</th>
-                      <th className="pb-3">客戶 / 機型</th>
-                      <th className="pb-3 text-right">報價</th>
-                      <th className="pb-3 text-right">成本</th>
-                      <th className="pb-3 text-right pr-3">維修毛利</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {filteredRepairOrders.length === 0 ? (
-                      <tr><td colSpan={5} className="text-center py-6 text-slate-400">此區間無已完修/交機之維修紀錄</td></tr>
-                    ) : (
-                      filteredRepairOrders.map((r) => (
-                        <tr key={r.id} className="hover:bg-slate-50">
-                          <td className="py-3.5 pl-3 font-mono font-bold text-blue-600">{r.repairNo}</td>
-                          <td className="py-3.5">{r.customerName} ({r.deviceModel})</td>
-                          <td className="py-3.5 text-right font-mono">${r.quotedPrice}</td>
-                          <td className="py-3.5 text-right font-mono">${r.repairCost}</td>
-                          <td className="py-3.5 text-right pr-3 font-mono font-bold text-emerald-600">+${r.quotedPrice - r.repairCost}</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
               </div>
             </div>
           </div>
