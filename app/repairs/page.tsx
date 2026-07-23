@@ -8,16 +8,23 @@ interface RepairItem {
   createdAt: string;
   customerName: string;
   phone: string;
+  brand: string;
   brandModel: string;
   color: string;
   serialNumber: string;
   problem: string;
   repairFee: number;
   deposit: number;
+  detectionFee: number;
   status: string; // '檢測中' | '已收件' | '已取件'
+  repairType: '一般維修' | '委外維修';
+  outsourcer?: string;
+  outsourcerCost?: number;
   usedParts?: { id: string; name: string; cost: number }[];
   paymentMethod?: string;
   profit?: number;
+  note?: string;
+  password?: string;
 }
 
 interface StockItem {
@@ -37,9 +44,9 @@ interface VendorItem {
   phone: string;
 }
 
-const LOCAL_STORAGE_REPAIRS = 'pos_repairs_data_v3';
-const LOCAL_STORAGE_STOCK = 'pos_stock_data_v3';
-const LOCAL_STORAGE_VENDORS = 'pos_vendors_data_v3';
+const LOCAL_STORAGE_REPAIRS = 'pos_repairs_data_v4';
+const LOCAL_STORAGE_STOCK = 'pos_stock_data_v4';
+const LOCAL_STORAGE_VENDORS = 'pos_vendors_data_v4';
 
 export default function RepairsAndStockPage() {
   const [activeTab, setActiveTab] = useState<'repairs' | 'stock' | 'vendors'>('repairs');
@@ -57,13 +64,16 @@ export default function RepairsAndStockPage() {
         createdAt: '2026/07/23 下午12:58',
         customerName: 'JOY秀菁',
         phone: '0912-345678',
+        brand: 'Apple',
         brandModel: '15',
         color: '黑',
         serialNumber: '-',
         problem: '00',
         repairFee: 1200,
         deposit: 0,
+        detectionFee: 0,
         status: '已收件',
+        repairType: '一般維修',
         usedParts: [],
       }
     ];
@@ -96,12 +106,30 @@ export default function RepairsAndStockPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRepair, setSelectedRepair] = useState<RepairItem | null>(null);
 
-  // 結帳彈窗專屬狀態
+  // 結帳彈窗狀態
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [checkoutRepair, setCheckoutRepair] = useState<RepairItem | null>(null);
   const [checkoutRepairFee, setCheckoutRepairFee] = useState<number>(0);
   const [checkoutPaymentMethod, setCheckoutPaymentMethod] = useState<string>('現金');
   const [selectedParts, setSelectedParts] = useState<{ id: string; name: string; cost: number }[]>([]);
+
+  // 新增維修單彈窗狀態
+  const [isAddRepairModalOpen, setIsAddRepairModalOpen] = useState(false);
+  const [newRepairType, setNewRepairType] = useState<'一般維修' | '委外維修'>('一般維修');
+  const [newCustomerName, setNewCustomerName] = useState('');
+  const [newPhone, setNewPhone] = useState('');
+  const [newBrand, setNewBrand] = useState('');
+  const [newBrandModel, setNewBrandModel] = useState('');
+  const [newColor, setNewColor] = useState('');
+  const [newSerialNumber, setNewSerialNumber] = useState('');
+  const [newProblem, setNewProblem] = useState('');
+  const [newRepairFee, setNewRepairFee] = useState<number>(0);
+  const [newDeposit, setNewDeposit] = useState<number>(0);
+  const [newDetectionFee, setNewDetectionFee] = useState<number>(0);
+  const [newOutsourcer, setNewOutsourcer] = useState('');
+  const [newOutsourcerCost, setNewOutsourcerCost] = useState<number>(0);
+  const [newNote, setNewNote] = useState('');
+  const [newPassword, setNewPassword] = useState('');
 
   // 新增零件與廠商 Modal
   const [isStockModalOpen, setIsStockModalOpen] = useState(false);
@@ -130,31 +158,26 @@ export default function RepairsAndStockPage() {
     setIsCheckoutModalOpen(true);
   };
 
-  // 加入使用料件
   const handleAddPartToCheckout = (part: StockItem) => {
     setSelectedParts(prev => [...prev, { id: part.id, name: part.name, cost: part.cost }]);
   };
 
-  // 移除已選料件
   const handleRemovePartFromCheckout = (index: number) => {
     setSelectedParts(prev => prev.filter((_, i) => i !== index));
   };
 
-  // 計算總零件成本
   const totalPartsCost = selectedParts.reduce((sum, p) => sum + p.cost, 0);
-  // 計算預估毛利 = 維修費 - 零件總成本
-  const estimatedProfit = checkoutRepairFee - totalPartsCost;
+  const estimatedProfit = checkoutRepair?.repairType === '委外維修' 
+    ? checkoutRepairFee - (checkoutRepair.outsourcerCost || 0)
+    : checkoutRepairFee - totalPartsCost;
 
-  // 確認取件結帳
   const handleConfirmCheckout = () => {
     if (!checkoutRepair) return;
 
-    // 扣除庫存
     selectedParts.forEach(used => {
       setStockList(prev => prev.map(s => s.id === used.id ? { ...s, stock: Math.max(0, s.stock - 1) } : s));
     });
 
-    // 更新維修單狀態為「已取件」
     setRepairs(prev => prev.map(r => r.id === checkoutRepair.id ? {
       ...r,
       status: '已取件',
@@ -168,7 +191,56 @@ export default function RepairsAndStockPage() {
     setSelectedRepair(null);
   };
 
-  // 刪除維修單
+  // 提交新增維修單
+  const handleAddRepairSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const newNo = `RO${new Date().toISOString().slice(2, 10).replace(/-/g, '')}${Math.floor(100 + Math.random() * 900)}`;
+    const nowStr = `${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+
+    const newItem: RepairItem = {
+      id: String(Date.now()),
+      repairNo: newNo,
+      createdAt: nowStr,
+      customerName: newCustomerName || '散客',
+      phone: newPhone || '-',
+      brand: newBrand,
+      brandModel: newBrandModel || '未指定機型',
+      color: newColor,
+      serialNumber: newSerialNumber,
+      problem: newProblem,
+      repairFee: newRepairFee,
+      deposit: newDeposit,
+      detectionFee: newDetectionFee,
+      status: '已收件',
+      repairType: newRepairType,
+      outsourcer: newOutsourcer,
+      outsourcerCost: newOutsourcerCost,
+      note: newNote,
+      password: newPassword,
+      usedParts: [],
+      profit: newRepairType === '委外維修' ? newRepairFee - newOutsourcerCost : newRepairFee
+    };
+
+    setRepairs(prev => [newItem, ...prev]);
+    setIsAddRepairModalOpen(false);
+
+    // 重置表單
+    setNewCustomerName('');
+    setNewPhone('');
+    setNewBrand('');
+    setNewBrandModel('');
+    setNewColor('');
+    setNewSerialNumber('');
+    setNewProblem('');
+    setNewRepairFee(0);
+    setNewDeposit(0);
+    setNewDetectionFee(0);
+    setNewOutsourcer('');
+    setNewOutsourcerCost(0);
+    setNewNote('');
+    setNewPassword('');
+  };
+
   const handleDeleteRepair = (id: string) => {
     if (confirm('確定要刪除此維修單嗎？')) {
       setRepairs(prev => prev.filter(r => r.id !== id));
@@ -176,14 +248,12 @@ export default function RepairsAndStockPage() {
     }
   };
 
-  // 刪除零件
   const handleDeleteStock = (id: string) => {
     if (confirm('確定要刪除此零件嗎？')) {
       setStockList(prev => prev.filter(s => s.id !== id));
     }
   };
 
-  // 新增零件
   const handleAddStockSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setStockList(prev => [{ id: String(Date.now()), ...newStock }, ...prev]);
@@ -191,20 +261,25 @@ export default function RepairsAndStockPage() {
     setNewStock({ code: '', name: '', category: '', model: '', stock: 0, cost: 0 });
   };
 
-  // 刪除廠商
   const handleDeleteVendor = (id: string) => {
     if (confirm('確定要刪除此廠商嗎？')) {
       setVendors(prev => prev.filter(v => v.id !== id));
     }
   };
 
-  // 新增廠商
   const handleAddVendorSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setVendors(prev => [{ id: String(Date.now()), ...newVendor }, ...prev]);
     setIsVendorModalOpen(false);
     setNewVendor({ name: '', contact: '', phone: '' });
   };
+
+  const filteredRepairs = repairs.filter(r => 
+    r.repairNo.includes(searchQuery) || 
+    r.customerName.includes(searchQuery) || 
+    r.phone.includes(searchQuery) || 
+    r.brandModel.includes(searchQuery)
+  );
 
   return (
     <div className="p-8 bg-slate-50 min-h-screen text-xs text-slate-700">
@@ -213,10 +288,20 @@ export default function RepairsAndStockPage() {
           <h1 className="text-2xl font-bold text-slate-800">維修與庫存管理</h1>
           <p className="text-slate-400 mt-1">管理客戶維修單、零件庫存及配合廠商</p>
         </div>
-        <div className="flex bg-white p-1 rounded-2xl shadow-sm border border-slate-100">
-          <button onClick={() => setActiveTab('repairs')} className={`px-4 py-2 rounded-xl font-semibold transition ${activeTab === 'repairs' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600'}`}>維修單列表 ({repairs.length})</button>
-          <button onClick={() => setActiveTab('stock')} className={`px-4 py-2 rounded-xl font-semibold transition ${activeTab === 'stock' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600'}`}>零件庫存 ({stockList.length})</button>
-          <button onClick={() => setActiveTab('vendors')} className={`px-4 py-2 rounded-xl font-semibold transition ${activeTab === 'vendors' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600'}`}>廠商管理 ({vendors.length})</button>
+        <div className="flex items-center gap-3">
+          {activeTab === 'repairs' && (
+            <button
+              onClick={() => setIsAddRepairModalOpen(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-2xl font-bold transition shadow-sm flex items-center gap-2"
+            >
+              <span>＋</span> 新增維修單
+            </button>
+          )}
+          <div className="flex bg-white p-1 rounded-2xl shadow-sm border border-slate-100">
+            <button onClick={() => setActiveTab('repairs')} className={`px-4 py-2 rounded-xl font-semibold transition ${activeTab === 'repairs' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600'}`}>維修單列表 ({repairs.length})</button>
+            <button onClick={() => setActiveTab('stock')} className={`px-4 py-2 rounded-xl font-semibold transition ${activeTab === 'stock' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600'}`}>零件庫存 ({stockList.length})</button>
+            <button onClick={() => setActiveTab('vendors')} className={`px-4 py-2 rounded-xl font-semibold transition ${activeTab === 'vendors' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600'}`}>廠商管理 ({vendors.length})</button>
+          </div>
         </div>
       </div>
 
@@ -227,7 +312,7 @@ export default function RepairsAndStockPage() {
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            placeholder="搜尋..."
+            placeholder="搜尋單號、客戶姓名、電話或機型..."
             className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 focus:outline-none focus:border-blue-500"
           />
         </div>
@@ -251,12 +336,13 @@ export default function RepairsAndStockPage() {
                 <th className="p-4">連絡電話</th>
                 <th className="p-4">機型</th>
                 <th className="p-4">問題描述</th>
+                <th className="p-4">類型</th>
                 <th className="p-4">目前狀態</th>
                 <th className="p-4 text-center">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {repairs.map(repair => (
+              {filteredRepairs.map(repair => (
                 <tr key={repair.id} className="hover:bg-slate-50 transition cursor-pointer" onClick={() => setSelectedRepair(repair)}>
                   <td className="p-4 font-mono font-medium text-blue-600">{repair.repairNo}</td>
                   <td className="p-4 text-slate-400">{repair.createdAt}</td>
@@ -264,6 +350,11 @@ export default function RepairsAndStockPage() {
                   <td className="p-4 font-mono">{repair.phone}</td>
                   <td className="p-4">{repair.brandModel}</td>
                   <td className="p-4">{repair.problem}</td>
+                  <td className="p-4">
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${repair.repairType === '委外維修' ? 'bg-amber-50 text-amber-600 border border-amber-200' : 'bg-slate-100 text-slate-600'}`}>
+                      {repair.repairType || '一般維修'}
+                    </span>
+                  </td>
                   <td className="p-4">
                     <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${
                       repair.status === '已取件' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-blue-50 text-blue-600 border border-blue-100'
@@ -356,18 +447,224 @@ export default function RepairsAndStockPage() {
         </div>
       )}
 
-      {/* 🚀 維修取件結帳專屬彈窗 (完全對應您的截圖設計) */}
+      {/* 🚀 新增維修單彈窗 (支援一般維修與委外維修切換) */}
+      {isAddRepairModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-100">
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <h2 className="text-base font-bold text-slate-800">新增維修單</h2>
+              <button onClick={() => setIsAddRepairModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+            </div>
+
+            <form onSubmit={handleAddRepairSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+              {/* 類型切換按鈕 */}
+              <div className="grid grid-cols-2 gap-3 p-1 bg-slate-100 rounded-2xl">
+                <button
+                  type="button"
+                  onClick={() => setNewRepairType('一般維修')}
+                  className={`py-2.5 rounded-xl font-bold transition shadow-sm ${newRepairType === '一般維修' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
+                >
+                  一般維修
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewRepairType('委外維修')}
+                  className={`py-2.5 rounded-xl font-bold transition shadow-sm ${newRepairType === '委外維修' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500'}`}
+                >
+                  ↗ 委外維修
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-slate-400 mb-1">客戶姓名 *</label>
+                  <input
+                    type="text"
+                    required
+                    value={newCustomerName}
+                    onChange={e => setNewCustomerName(e.target.value)}
+                    placeholder="輸入客戶姓名或電話..."
+                    className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-xl focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">連絡電話</label>
+                  <input
+                    type="text"
+                    value={newPhone}
+                    onChange={e => setNewPhone(e.target.value)}
+                    placeholder="0912-345678"
+                    className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-xl focus:outline-none focus:border-blue-500 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-slate-400 mb-1">品牌</label>
+                  <input
+                    type="text"
+                    value={newBrand}
+                    onChange={e => setNewBrand(e.target.value)}
+                    placeholder="Apple / Samsung..."
+                    className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-xl focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">機型 *</label>
+                  <input
+                    type="text"
+                    required
+                    value={newBrandModel}
+                    onChange={e => setNewBrandModel(e.target.value)}
+                    placeholder="iPhone 15"
+                    className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-xl focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-slate-400 mb-1">顏色</label>
+                  <input
+                    type="text"
+                    value={newColor}
+                    onChange={e => setNewColor(e.target.value)}
+                    placeholder="例如：太空黑"
+                    className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-xl focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">序號 / IMEI</label>
+                  <input
+                    type="text"
+                    value={newSerialNumber}
+                    onChange={e => setNewSerialNumber(e.target.value)}
+                    placeholder="裝置序號"
+                    className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-xl focus:outline-none focus:border-blue-500 font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* 若選擇委外維修，顯示委外店家與廠商報價 */}
+              {newRepairType === '委外維修' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-amber-50/50 p-4 rounded-2xl border border-amber-100">
+                  <div>
+                    <label className="block text-amber-800 mb-1 font-semibold">委外店家</label>
+                    <input
+                      type="text"
+                      value={newOutsourcer}
+                      onChange={e => setNewOutsourcer(e.target.value)}
+                      placeholder="店家名稱或地址..."
+                      className="w-full bg-white border border-amber-200 p-2.5 rounded-xl focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-amber-800 mb-1 font-semibold">廠商報價 (元)</label>
+                    <input
+                      type="number"
+                      value={newOutsourcerCost}
+                      onChange={e => setNewOutsourcerCost(Number(e.target.value))}
+                      className="w-full bg-white border border-amber-200 p-2.5 rounded-xl focus:outline-none focus:border-amber-500 font-mono"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-slate-400 mb-1">問題描述 *</label>
+                <textarea
+                  required
+                  rows={3}
+                  value={newProblem}
+                  onChange={e => setNewProblem(e.target.value)}
+                  placeholder="描述客戶反映的問題..."
+                  className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-xl focus:outline-none focus:border-blue-500 resize-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1">維修價 (元)</label>
+                  <input
+                    type="number"
+                    value={newRepairFee}
+                    onChange={e => setNewRepairFee(Number(e.target.value))}
+                    className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-xl font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">訂金 (元)</label>
+                  <input
+                    type="number"
+                    value={newDeposit}
+                    onChange={e => setNewDeposit(Number(e.target.value))}
+                    className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-xl font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">檢測費 (元)</label>
+                  <input
+                    type="number"
+                    value={newDetectionFee}
+                    onChange={e => setNewDetectionFee(Number(e.target.value))}
+                    className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-xl font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">備註</label>
+                <input
+                  type="text"
+                  value={newNote}
+                  onChange={e => setNewNote(e.target.value)}
+                  placeholder="其他補充事項..."
+                  className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-xl"
+                />
+              </div>
+
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                <label className="block text-slate-500 font-semibold mb-1">客戶手機解鎖密碼</label>
+                <input
+                  type="text"
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  placeholder="供維修人員解鎖使用..."
+                  className="w-full bg-white border border-slate-200 p-2.5 rounded-xl font-mono"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsAddRepairModalOpen(false)}
+                  className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-semibold transition"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition shadow-sm"
+                >
+                  確認新增
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 🚀 維修取件結帳彈窗 */}
       {isCheckoutModalOpen && checkoutRepair && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden border border-slate-100">
-            {/* 標題列 */}
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
               <h2 className="text-base font-bold text-slate-800">維修取件結帳 — {checkoutRepair.repairNo}</h2>
               <button onClick={() => setIsCheckoutModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
             </div>
 
             <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6 max-h-[80vh] overflow-y-auto">
-              {/* 左側：客戶簡要與使用料件選取 */}
               <div className="space-y-4">
                 <div className="bg-slate-50 p-4 rounded-2xl flex justify-between items-center">
                   <div>客戶：<span className="font-bold text-slate-800">{checkoutRepair.customerName}</span></div>
@@ -375,45 +672,49 @@ export default function RepairsAndStockPage() {
                   <div>問題：<span className="font-bold text-slate-800">{checkoutRepair.problem}</span></div>
                 </div>
 
-                <div>
-                  <div className="font-bold text-slate-700 mb-2">使用料件（成本追蹤）</div>
-                  {/* 已選入的料件 */}
-                  {selectedParts.length > 0 && (
-                    <div className="mb-3 space-y-2">
-                      <div className="text-[11px] text-slate-400 font-semibold">已選用的零件：</div>
-                      {selectedParts.map((p, idx) => (
-                        <div key={idx} className="flex justify-between items-center bg-blue-50/60 border border-blue-100 p-2.5 rounded-xl">
-                          <div>
-                            <span className="font-bold text-blue-900">{p.name}</span>
-                            <span className="text-slate-500 ml-2">成本 ${p.cost}</span>
+                {checkoutRepair.repairType === '委外維修' ? (
+                  <div className="bg-amber-50 p-4 rounded-2xl border border-amber-200 space-y-2">
+                    <div className="font-bold text-amber-800">委外維修資訊</div>
+                    <div>委外店家：<span className="font-bold">{checkoutRepair.outsourcer || '未指定'}</span></div>
+                    <div>廠商報價成本：<span className="font-mono text-rose-600 font-bold">${checkoutRepair.outsourcerCost || 0}</span></div>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="font-bold text-slate-700 mb-2">使用料件（成本追蹤）</div>
+                    {selectedParts.length > 0 && (
+                      <div className="mb-3 space-y-2">
+                        <div className="text-[11px] text-slate-400 font-semibold">已選用的零件：</div>
+                        {selectedParts.map((p, idx) => (
+                          <div key={idx} className="flex justify-between items-center bg-blue-50/60 border border-blue-100 p-2.5 rounded-xl">
+                            <div>
+                              <span className="font-bold text-blue-900">{p.name}</span>
+                              <span className="text-slate-500 ml-2">成本 ${p.cost}</span>
+                            </div>
+                            <button onClick={() => handleRemovePartFromCheckout(idx)} className="text-rose-500 font-bold px-2 hover:bg-rose-100 rounded">✕</button>
                           </div>
-                          <button onClick={() => handleRemovePartFromCheckout(idx)} className="text-rose-500 font-bold px-2 hover:bg-rose-100 rounded">✕</button>
+                        ))}
+                      </div>
+                    )}
+                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                      {stockList.map(item => (
+                        <div key={item.id} className="bg-slate-50 hover:bg-slate-100 border border-slate-200/60 p-3 rounded-2xl flex justify-between items-center transition">
+                          <div>
+                            <div className="font-bold text-slate-800">{item.name}</div>
+                            <div className="text-[11px] text-slate-400 mt-0.5">庫存 {item.stock} · 成本 ${item.cost}</div>
+                          </div>
+                          <button
+                            onClick={() => handleAddPartToCheckout(item)}
+                            className="w-8 h-8 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center justify-center transition shadow-sm"
+                          >
+                            +
+                          </button>
                         </div>
                       ))}
                     </div>
-                  )}
-
-                  {/* 可點擊加入的庫存清單 */}
-                  <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                    {stockList.map(item => (
-                      <div key={item.id} className="bg-slate-50 hover:bg-slate-100 border border-slate-200/60 p-3 rounded-2xl flex justify-between items-center transition">
-                        <div>
-                          <div className="font-bold text-slate-800">{item.name}</div>
-                          <div className="text-[11px] text-slate-400 mt-0.5">庫存 {item.stock} · 成本 ${item.cost}</div>
-                        </div>
-                        <button
-                          onClick={() => handleAddPartToCheckout(item)}
-                          className="w-8 h-8 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center justify-center transition shadow-sm"
-                        >
-                          +
-                        </button>
-                      </div>
-                    ))}
                   </div>
-                </div>
+                )}
               </div>
 
-              {/* 右側：維修費、付款方式、結帳摘要 */}
               <div className="space-y-4">
                 <div className="flex gap-4">
                   <div className="flex-1">
@@ -427,7 +728,6 @@ export default function RepairsAndStockPage() {
                   </div>
                 </div>
 
-                {/* 付款方式：現金、刷卡、匯款 */}
                 <div>
                   <label className="block text-slate-400 mb-2">付款方式</label>
                   <div className="grid grid-cols-3 gap-2">
@@ -446,17 +746,23 @@ export default function RepairsAndStockPage() {
                   </div>
                 </div>
 
-                {/* 結帳摘要 */}
                 <div className="bg-slate-50 p-4 rounded-2xl space-y-2 border border-slate-100">
                   <div className="font-bold text-slate-700 flex items-center gap-1">⚙️ 結帳摘要</div>
                   <div className="flex justify-between text-slate-600">
                     <span>維修費</span>
                     <span className="font-mono">${checkoutRepairFee}</span>
                   </div>
-                  <div className="flex justify-between text-slate-600">
-                    <span>零件總成本</span>
-                    <span className="font-mono text-rose-500">-${totalPartsCost}</span>
-                  </div>
+                  {checkoutRepair.repairType === '委外維修' ? (
+                    <div className="flex justify-between text-slate-600">
+                      <span>委外成本</span>
+                      <span className="font-mono text-rose-500">-${checkoutRepair.outsourcerCost || 0}</span>
+                    </div>
+                  ) : (
+                    <div className="flex justify-between text-slate-600">
+                      <span>零件總成本</span>
+                      <span className="font-mono text-rose-500">-${totalPartsCost}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between font-bold text-emerald-600 pt-2 border-t border-slate-200/60 text-sm">
                     <span>預估毛利</span>
                     <span className="font-mono">${estimatedProfit}</span>
@@ -469,7 +775,6 @@ export default function RepairsAndStockPage() {
               </div>
             </div>
 
-            {/* 底部按鈕 */}
             <div className="px-6 py-4 bg-slate-50/50 border-t border-slate-100 flex justify-end gap-3">
               <button
                 onClick={() => setIsCheckoutModalOpen(false)}
@@ -488,7 +793,7 @@ export default function RepairsAndStockPage() {
         </div>
       )}
 
-      {/* 一般檢視明細彈窗 */}
+      {/* 檢視明細彈窗 */}
       {selectedRepair && !isCheckoutModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100">
@@ -501,6 +806,7 @@ export default function RepairsAndStockPage() {
                 <div>客戶：<span className="font-bold">{selectedRepair.customerName}</span></div>
                 <div>電話：<span className="font-mono">{selectedRepair.phone}</span></div>
                 <div>機型：<span className="font-bold">{selectedRepair.brandModel}</span></div>
+                <div>類型：<span className="font-bold text-amber-600">{selectedRepair.repairType || '一般維修'}</span></div>
                 <div>狀態：<span className="font-bold text-blue-600">{selectedRepair.status}</span></div>
               </div>
               <div className="bg-slate-50 p-4 rounded-2xl">
