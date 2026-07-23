@@ -41,13 +41,24 @@ interface PartItem {
   cost: number;
 }
 
+interface PurchaseRecord {
+  id: string;
+  orderNo: string;
+  date: string;
+  vendor: string;
+  remark: string;
+  itemCount: number;
+  itemsName?: string;
+  cost?: number;
+}
+
 export default function RepairManagementPage() {
   const getTodayStr = () => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
 
-  const [activeTab, setActiveTab] = useState<'repairs' | 'parts' | 'purchases' | 'catalog' | 'vendors'>('parts');
+  const [activeTab, setActiveTab] = useState<'repairs' | 'parts' | 'purchases' | 'catalog' | 'vendors'>('purchases');
 
   // 客戶資料同步
   const [customers, setCustomers] = useState<Customer[]>(() => {
@@ -122,6 +133,21 @@ export default function RepairManagementPage() {
     ];
   });
 
+  // 進貨紀錄列表
+  const [purchases, setPurchases] = useState<PurchaseRecord[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('pos_purchases_records_v3');
+        if (saved) return JSON.parse(saved);
+      } catch (e) { console.error(e); }
+    }
+    return [
+      { id: 'pu1', orderNo: 'RP260715002', date: '2026-07-15', vendor: 'THEONE', remark: '—', itemCount: 1 },
+      { id: 'pu2', orderNo: 'RP260715001', date: '2026-07-15', vendor: 'THEONE', remark: '—', itemCount: 1 },
+      { id: 'pu3', orderNo: 'RP260714001', date: '2026-07-14', vendor: '—', remark: '—', itemCount: 1 }
+    ];
+  });
+
   // 自動同步外部客戶資料
   useEffect(() => {
     const interval = setInterval(() => {
@@ -156,17 +182,22 @@ export default function RepairManagementPage() {
     }
   }, [parts]);
 
-  // 維修單搜尋與篩選狀態
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pos_purchases_records_v3', JSON.stringify(purchases));
+    }
+  }, [purchases]);
+
+  // 搜尋與狀態
   const [searchKeyword, setSearchKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState('全部狀態');
   const [showTrash, setShowTrash] = useState(false);
 
-  // 零件搜尋與 Modal 狀態
+  // 零件相關
   const [partSearchKeyword, setPartSearchKeyword] = useState('');
   const [isAddPartModalOpen, setIsAddPartModalOpen] = useState(false);
   const [selectedPart, setSelectedPart] = useState<PartItem | null>(null);
 
-  // 新增零件表單欄位
   const [newPartNo, setNewPartNo] = useState('');
   const [newPartName, setNewPartName] = useState('');
   const [newPartCategory, setNewPartCategory] = useState('');
@@ -174,11 +205,13 @@ export default function RepairManagementPage() {
   const [newPartStock, setNewPartStock] = useState<number>(0);
   const [newPartCost, setNewPartCost] = useState<number>(0);
 
+  // 進貨紀錄檢視明細 Modal
+  const [selectedPurchase, setSelectedPurchase] = useState<PurchaseRecord | null>(null);
+
   // 新增維修單 Modal 狀態
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'general' | 'outsource'>('general');
 
-  // 維修單表單欄位
   const [custInput, setCustInput] = useState('');
   const [isCustDropdownOpen, setIsCustDropdownOpen] = useState(false);
   const [brand, setBrand] = useState('');
@@ -195,7 +228,6 @@ export default function RepairManagementPage() {
   const [remark, setRemark] = useState('');
   const [password, setPassword] = useState('');
 
-  // 快速新增客戶 Modal
   const [isCustModalOpen, setIsCustModalOpen] = useState(false);
   const [newCustName, setNewCustName] = useState('');
   const [newCustPhone, setNewCustPhone] = useState('');
@@ -297,7 +329,23 @@ export default function RepairManagementPage() {
     };
 
     setParts([newPart, ...parts]);
-    alert(`成功新增零件：${newPart.name}`);
+
+    // 同時自動產生一筆進貨紀錄
+    const randomNo = Math.floor(10000 + Math.random() * 90000);
+    const purchaseOrderNo = `RP${getTodayStr().replace(/-/g, '').slice(2)}${String(randomNo).slice(-5)}`;
+    const newPurchase: PurchaseRecord = {
+      id: `pu-${Date.now()}`,
+      orderNo: purchaseOrderNo,
+      date: getTodayStr(),
+      vendor: '—',
+      remark: `新增零件：${newPart.name}`,
+      itemCount: 1,
+      itemsName: newPart.name,
+      cost: newPart.cost
+    };
+    setPurchases([newPurchase, ...purchases]);
+
+    alert(`成功新增零件與進貨紀錄：${purchaseOrderNo}`);
     setIsAddPartModalOpen(false);
     setNewPartNo('');
     setNewPartName('');
@@ -311,6 +359,14 @@ export default function RepairManagementPage() {
     if (confirm('確定要刪除此零件嗎？')) {
       setParts(parts.filter(p => p.id !== id));
       setSelectedPart(null);
+    }
+  };
+
+  const handleDeletePurchase = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm('確定要刪除此進貨紀錄嗎？')) {
+      setPurchases(purchases.filter(p => p.id !== id));
+      if (selectedPurchase?.id === id) setSelectedPurchase(null);
     }
   };
 
@@ -505,6 +561,118 @@ export default function RepairManagementPage() {
                   )}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 進貨紀錄頁籤 */}
+      {activeTab === 'purchases' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-3xl shadow-sm border border-slate-200/60 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 text-slate-400 font-bold bg-slate-50/50">
+                    <th className="p-4">單號</th>
+                    <th className="p-4">日期</th>
+                    <th className="p-4">廠商</th>
+                    <th className="p-4">備註</th>
+                    <th className="p-4">品項數</th>
+                    <th className="p-4 text-right"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {purchases.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="text-center py-12 text-slate-400">目前沒有進貨紀錄</td>
+                    </tr>
+                  ) : (
+                    purchases.map((pu) => (
+                      <tr 
+                        key={pu.id}
+                        onClick={() => setSelectedPurchase(pu)}
+                        className="hover:bg-slate-50/50 transition cursor-pointer"
+                      >
+                        <td className="p-4 font-mono font-bold text-blue-600">{pu.orderNo}</td>
+                        <td className="p-4 text-slate-600 font-mono">{pu.date}</td>
+                        <td className="p-4 font-medium text-slate-800">{pu.vendor}</td>
+                        <td className="p-4 text-slate-500">{pu.remark}</td>
+                        <td className="p-4 font-mono font-bold text-slate-800">{pu.itemCount}</td>
+                        <td className="p-4 text-right flex items-center justify-end gap-3">
+                          <button
+                            onClick={(e) => handleDeletePurchase(pu.id, e)}
+                            className="p-1 text-slate-400 hover:text-rose-600 transition"
+                            title="刪除"
+                          >
+                            🗑️
+                          </button>
+                          <span className="text-slate-300">›</span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 進貨紀錄明細彈出視窗 */}
+      {selectedPurchase && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-xl space-y-4 animate-in fade-in zoom-in duration-150">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="text-sm font-bold text-slate-800">進貨單明細：{selectedPurchase.orderNo}</h3>
+              <button onClick={() => setSelectedPurchase(null)} className="text-slate-400 hover:text-rose-600 text-base">×</button>
+            </div>
+            <div className="space-y-3 text-xs">
+              <div className="flex justify-between py-1 border-b border-slate-50">
+                <span className="text-slate-400">進貨日期</span>
+                <span className="font-mono font-bold text-slate-800">{selectedPurchase.date}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-50">
+                <span className="text-slate-400">廠商</span>
+                <span className="font-bold text-slate-800">{selectedPurchase.vendor}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-50">
+                <span className="text-slate-400">備註說明</span>
+                <span className="text-slate-700">{selectedPurchase.remark}</span>
+              </div>
+              {selectedPurchase.itemsName && (
+                <div className="flex justify-between py-1 border-b border-slate-50">
+                  <span className="text-slate-400">進貨零件名稱</span>
+                  <span className="font-bold text-slate-800">{selectedPurchase.itemsName}</span>
+                </div>
+              )}
+              {selectedPurchase.cost !== undefined && (
+                <div className="flex justify-between py-1 border-b border-slate-50">
+                  <span className="text-slate-400">成本價</span>
+                  <span className="font-mono font-bold text-slate-800">${selectedPurchase.cost}</span>
+                </div>
+              )}
+              <div className="flex justify-between py-1">
+                <span className="text-slate-400">品項數</span>
+                <span className="font-mono font-bold text-slate-800">{selectedPurchase.itemCount}</span>
+              </div>
+            </div>
+            <div className="flex justify-between pt-2">
+              <button
+                onClick={(e) => {
+                  handleDeletePurchase(selectedPurchase.id, e);
+                  setSelectedPurchase(null);
+                }}
+                className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-bold transition"
+              >
+                刪除此筆紀錄
+              </button>
+              <button
+                onClick={() => setSelectedPurchase(null)}
+                className="px-5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition"
+              >
+                關閉視窗
+              </button>
             </div>
           </div>
         </div>
