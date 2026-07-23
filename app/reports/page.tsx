@@ -28,7 +28,6 @@ interface RepairRecord {
   paymentMethod: string;
   status: string;
   createdAt?: string;
-  raw?: any; // 保留原始資料用來除錯
 }
 
 interface TransactionRecord {
@@ -97,21 +96,28 @@ export default function ReportsPage() {
         })));
       }
 
-      // 2. 抓取維修紀錄 (印出完整原始資料以便除錯)
-      const { data: repairData, error: repairError } = await supabase.from('repairs').select('*');
-      console.log('【Supabase 原始維修資料】:', repairData);
-      console.log('【Supabase 抓取錯誤】:', repairError);
+      // 2. 同時嘗試從多個可能的資料表抓取維修紀錄 (repairs, repair_records, orders)
+      let rawRepairs: any[] = [];
+      const tablesToTry = ['repairs', 'repair_records', 'orders', 'repair'];
+      for (const tableName of tablesToTry) {
+        const { data } = await supabase.from(tableName).select('*');
+        if (data && data.length > 0) {
+          // 如果這張表裡有包含維修相關的關鍵字或欄位，就採用它
+          rawRepairs = data;
+          console.log(`成功從 ${tableName} 抓取到資料:`, data);
+          break;
+        }
+      }
 
-      if (!repairError && repairData) {
-        setRepairRecords(repairData.map((item: any) => {
-          // 自動抓取任何可能是金額的欄位
+      if (rawRepairs.length > 0) {
+        setRepairRecords(rawRepairs.map((item: any) => {
           const priceVal = Number(
             item.price ?? item.total_price ?? item.totalPrice ?? item.amount ?? item.repair_price ?? item.repairPrice ?? item.cost ?? 0
           );
           const costVal = Number(item.cost || item.outsource_cost || item.outsourceCost || 0);
           const repairNoVal = item.repair_no || item.repairNo || item.order_no || item.id?.slice(0, 8) || 'REP';
           const dateVal = item.date || item.created_at?.split('T')[0] || item.updated_at?.split('T')[0] || getTodayStr();
-          const deviceVal = item.device_model || item.deviceModel || item.model || '維修裝置';
+          const deviceVal = item.device_model || item.deviceModel || item.model || item.name || '維修裝置';
           const faultVal = item.fault_desc || item.faultDesc || item.description || '維修服務';
           const paymentVal = item.payment_method || item.paymentMethod || item.pay_method || '現金';
           const statusVal = item.status || item.repair_status || '';
@@ -127,7 +133,6 @@ export default function ReportsPage() {
             paymentMethod: paymentVal,
             status: statusVal,
             createdAt: item.created_at || dateVal,
-            raw: item
           };
         }));
       }
@@ -155,9 +160,8 @@ export default function ReportsPage() {
     fetchData();
   }, []);
 
-  // 當日過濾資料 (如果日期對不上，這裡改為顯示「全部維修資料」幫助您除錯)
   const currentDaySales = salesRecords.filter(r => r.date === selectedDate);
-  const currentDayRepairs = repairRecords; // 暫時改為抓全部不分日期，確保畫面會跳出來
+  const currentDayRepairs = repairRecords.filter(r => r.date === selectedDate);
   const currentDayTrans = transactions.filter(t => t.date === selectedDate);
 
   const currentDaySalesTotal = currentDaySales.reduce((sum, r) => sum + r.totalAmount, 0);
@@ -184,7 +188,6 @@ export default function ReportsPage() {
       {/* 頂部日期與快捷按鈕 */}
       <div className="flex justify-between items-center bg-white rounded-3xl p-4 shadow-sm border border-slate-200/60">
         <div className="flex items-center gap-3">
-          <span className="text-xs text-slate-500 font-bold">目前選擇日期：</span>
           <input 
             type="date" 
             value={selectedDate} 
@@ -205,7 +208,7 @@ export default function ReportsPage() {
         <div className="flex items-center gap-4">
           <div className="w-2 h-10 bg-emerald-500 rounded-full"></div>
           <div>
-            <span className="text-xs text-slate-400 font-medium">總淨收入 (目前載入所有維修資料)</span>
+            <span className="text-xs text-slate-400 font-medium">今日淨收入</span>
             <h2 className={`text-3xl font-mono font-bold mt-0.5 ${netIncome >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>${netIncome.toLocaleString()}</h2>
           </div>
         </div>
@@ -217,9 +220,8 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* 收入明細與支出區塊 */}
+      {/* 收入明細與款項結算 */}
       <div className="grid grid-cols-2 gap-6">
-        {/* 收入明細 */}
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-4">
           <div className="flex justify-between items-center">
             <span className="text-sm font-bold text-slate-800 flex items-center gap-2">📝 收入明細</span>
@@ -236,22 +238,12 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        {/* 款項結算 */}
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-4">
           <span className="text-sm font-bold text-slate-800 flex items-center gap-2">💳 款項結算 (現金)</span>
           <div className="p-4 bg-emerald-50/40 rounded-2xl border border-emerald-100/50 space-y-1">
             <span className="text-xs text-slate-500 font-medium">現金總額</span>
             <p className="text-2xl font-mono font-bold text-slate-800">${cashTotal.toLocaleString()}</p>
           </div>
-        </div>
-      </div>
-
-      {/* 🛠️ 【除錯專用】直接把抓到的維修資料印在畫面上 */}
-      <div className="bg-amber-50 border border-amber-200 rounded-3xl p-6 space-y-3">
-        <h3 className="text-sm font-bold text-amber-800">🔍 系統診斷：目前資料庫 (`repairs` 表格) 抓到的資料內容：</h3>
-        <p className="text-xs text-amber-700">如果您在這裡看得到您的維修紀錄，但上面金額沒加總，代表欄位名稱對不上；如果這裡空白，代表您的維修資料存在其他資料表（例如 `orders` 或 `repair_records`）。</p>
-        <div className="bg-white p-4 rounded-2xl border border-amber-100 font-mono text-xs overflow-x-auto max-h-60">
-          <pre>{JSON.stringify(repairRecords, null, 2)}</pre>
         </div>
       </div>
 
@@ -267,7 +259,7 @@ export default function ReportsPage() {
               {currentDayRepairs.map((r, i) => (
                 <div key={`r-${i}`} className="grid grid-cols-12 items-center bg-emerald-50/30 rounded-2xl p-3 text-xs border border-emerald-100">
                   <span className="col-span-3 text-slate-700 font-mono font-medium">{r.repairNo}</span>
-                  <span className="col-span-7 text-slate-800">{r.deviceModel} - {r.faultDesc} (金額欄位: ${r.price})</span>
+                  <span className="col-span-7 text-slate-800">{r.deviceModel} - {r.faultDesc}</span>
                   <span className="col-span-2 text-right font-mono font-bold text-emerald-600">+${r.price.toLocaleString()}</span>
                 </div>
               ))}
