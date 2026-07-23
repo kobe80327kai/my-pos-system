@@ -52,13 +52,24 @@ interface PurchaseRecord {
   cost?: number;
 }
 
+interface VendorItem {
+  id: string;
+  vendorNo: string;
+  name: string;
+  contact?: string;
+  phone?: string;
+  tel?: string;
+  address?: string;
+  remark?: string;
+}
+
 export default function RepairManagementPage() {
   const getTodayStr = () => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
 
-  const [activeTab, setActiveTab] = useState<'repairs' | 'parts' | 'purchases' | 'catalog' | 'vendors'>('purchases');
+  const [activeTab, setActiveTab] = useState<'repairs' | 'parts' | 'purchases' | 'vendors'>('purchases');
 
   // 客戶資料同步
   const [customers, setCustomers] = useState<Customer[]>(() => {
@@ -148,6 +159,19 @@ export default function RepairManagementPage() {
     ];
   });
 
+  // 維修廠商列表
+  const [vendors, setVendors] = useState<VendorItem[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('pos_vendors_v3');
+        if (saved) return JSON.parse(saved);
+      } catch (e) { console.error(e); }
+    }
+    return [
+      { id: 'v1', vendorNo: 'THEONE', name: 'THEONE', contact: '—', phone: '—', tel: '—', address: '—', remark: '—' }
+    ];
+  });
+
   // 自動同步外部客戶資料
   useEffect(() => {
     const interval = setInterval(() => {
@@ -188,6 +212,12 @@ export default function RepairManagementPage() {
     }
   }, [purchases]);
 
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pos_vendors_v3', JSON.stringify(vendors));
+    }
+  }, [vendors]);
+
   // 搜尋與狀態
   const [searchKeyword, setSearchKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState('全部狀態');
@@ -204,6 +234,19 @@ export default function RepairManagementPage() {
   const [newPartModel, setNewPartModel] = useState('');
   const [newPartStock, setNewPartStock] = useState<number>(0);
   const [newPartCost, setNewPartCost] = useState<number>(0);
+
+  // 廠商相關 Modal 狀態
+  const [isAddVendorModalOpen, setIsAddVendorModalOpen] = useState(false);
+  const [isEditVendorModalOpen, setIsEditVendorModalOpen] = useState(false);
+  const [editingVendor, setEditingVendor] = useState<VendorItem | null>(null);
+
+  const [vendorNoInput, setVendorNoInput] = useState('');
+  const [vendorNameInput, setVendorNameInput] = useState('');
+  const [vendorContactInput, setVendorContactInput] = useState('');
+  const [vendorPhoneInput, setVendorPhoneInput] = useState('');
+  const [vendorTelInput, setVendorTelInput] = useState('');
+  const [vendorAddressInput, setVendorAddressInput] = useState('');
+  const [vendorRemarkInput, setVendorRemarkInput] = useState('');
 
   // 進貨紀錄檢視明細 Modal
   const [selectedPurchase, setSelectedPurchase] = useState<PurchaseRecord | null>(null);
@@ -330,7 +373,6 @@ export default function RepairManagementPage() {
 
     setParts([newPart, ...parts]);
 
-    // 同時自動產生一筆進貨紀錄
     const randomNo = Math.floor(10000 + Math.random() * 90000);
     const purchaseOrderNo = `RP${getTodayStr().replace(/-/g, '').slice(2)}${String(randomNo).slice(-5)}`;
     const newPurchase: PurchaseRecord = {
@@ -370,6 +412,78 @@ export default function RepairManagementPage() {
     }
   };
 
+  // 廠商相關處理函式
+  const handleCreateVendor = () => {
+    if (!vendorNameInput.trim()) {
+      alert('請填寫廠商名稱');
+      return;
+    }
+    const finalVendorNo = vendorNoInput.trim() || vendorNameInput.trim();
+    const newVendor: VendorItem = {
+      id: `v-${Date.now()}`,
+      vendorNo: finalVendorNo,
+      name: vendorNameInput.trim(),
+      contact: vendorContactInput.trim() || '—',
+      phone: vendorPhoneInput.trim() || '—',
+      tel: vendorTelInput.trim() || '—',
+      address: vendorAddressInput.trim() || '—',
+      remark: vendorRemarkInput.trim() || '—'
+    };
+    setVendors([newVendor, ...vendors]);
+    setIsAddVendorModalOpen(false);
+    setVendorNoInput('');
+    setVendorNameInput('');
+    setVendorContactInput('');
+    setVendorPhoneInput('');
+    setVendorTelInput('');
+    setVendorAddressInput('');
+    setVendorRemarkInput('');
+  };
+
+  const handleUpdateVendor = () => {
+    if (!editingVendor || !vendorNameInput.trim()) {
+      alert('請填寫廠商名稱');
+      return;
+    }
+    const finalVendorNo = vendorNoInput.trim() || vendorNameInput.trim();
+    const updatedVendors = vendors.map(v => {
+      if (v.id === editingVendor.id) {
+        return {
+          ...v,
+          vendorNo: finalVendorNo,
+          name: vendorNameInput.trim(),
+          contact: vendorContactInput.trim() || '—',
+          phone: vendorPhoneInput.trim() || '—',
+          tel: vendorTelInput.trim() || '—',
+          address: vendorAddressInput.trim() || '—',
+          remark: vendorRemarkInput.trim() || '—'
+        };
+      }
+      return v;
+    });
+    setVendors(updatedVendors);
+    setIsEditVendorModalOpen(false);
+    setEditingVendor(null);
+  };
+
+  const handleDeleteVendor = (id: string) => {
+    if (confirm('確定要刪除此維修廠商嗎？')) {
+      setVendors(vendors.filter(v => v.id !== id));
+    }
+  };
+
+  const openEditVendorModal = (v: VendorItem) => {
+    setEditingVendor(v);
+    setVendorNoInput(v.vendorNo);
+    setVendorNameInput(v.name);
+    setVendorContactInput(v.contact === '—' ? '' : (v.contact || ''));
+    setVendorPhoneInput(v.phone === '—' ? '' : (v.phone || ''));
+    setVendorTelInput(v.tel === '—' ? '' : (v.tel || ''));
+    setVendorAddressInput(v.address === '—' ? '' : (v.address || ''));
+    setVendorRemarkInput(v.remark === '—' ? '' : (v.remark || ''));
+    setIsEditVendorModalOpen(true);
+  };
+
   const filteredRepairs = repairs.filter(r => {
     const matchKeyword = !searchKeyword || 
       r.orderNo.toLowerCase().includes(searchKeyword.toLowerCase()) ||
@@ -383,12 +497,6 @@ export default function RepairManagementPage() {
   const filteredParts = parts.filter(p => {
     const kw = partSearchKeyword.trim().toLowerCase();
     return !kw || p.name.toLowerCase().includes(kw) || p.partNo.toLowerCase().includes(kw) || p.model.toLowerCase().includes(kw);
-  });
-
-  const filteredCustomers = customers.filter(c => {
-    if (!custInput) return true;
-    const kw = custInput.trim().toLowerCase();
-    return c.name.toLowerCase().includes(kw) || c.phone.includes(kw);
   });
 
   return (
@@ -412,14 +520,30 @@ export default function RepairManagementPage() {
             + 新增零件
           </button>
         )}
+        {activeTab === 'vendors' && (
+          <button
+            onClick={() => {
+              setVendorNoInput('');
+              setVendorNameInput('');
+              setVendorContactInput('');
+              setVendorPhoneInput('');
+              setVendorTelInput('');
+              setVendorAddressInput('');
+              setVendorRemarkInput('');
+              setIsAddVendorModalOpen(true);
+            }}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center gap-1.5"
+          >
+            + 新增廠商
+          </button>
+        )}
       </div>
 
-      {/* 子頁籤導覽列 */}
+      {/* 子頁籤導覽列 (已移除維修零件建檔) */}
       <div className="flex gap-6 border-b border-slate-200 text-xs font-bold text-slate-500 pb-3">
         <button onClick={() => setActiveTab('repairs')} className={`pb-1 transition ${activeTab === 'repairs' ? 'text-blue-600 border-b-2 border-blue-600' : 'hover:text-slate-700'}`}>維修單</button>
         <button onClick={() => setActiveTab('parts')} className={`pb-1 transition ${activeTab === 'parts' ? 'text-blue-600 border-b-2 border-blue-600' : 'hover:text-slate-700'}`}>零件庫存</button>
         <button onClick={() => setActiveTab('purchases')} className={`pb-1 transition ${activeTab === 'purchases' ? 'text-blue-600 border-b-2 border-blue-600' : 'hover:text-slate-700'}`}>進貨紀錄</button>
-        <button onClick={() => setActiveTab('catalog')} className={`pb-1 transition ${activeTab === 'catalog' ? 'text-blue-600 border-b-2 border-blue-600' : 'hover:text-slate-700'}`}>維修零件建檔</button>
         <button onClick={() => setActiveTab('vendors')} className={`pb-1 transition ${activeTab === 'vendors' ? 'text-blue-600 border-b-2 border-blue-600' : 'hover:text-slate-700'}`}>維修廠商</button>
       </div>
 
@@ -619,6 +743,251 @@ export default function RepairManagementPage() {
         </div>
       )}
 
+      {/* 維修廠商頁籤 */}
+      {activeTab === 'vendors' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-3xl shadow-sm border border-slate-200/60 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 text-slate-400 font-bold bg-slate-50/50">
+                    <th className="p-4">廠商編號</th>
+                    <th className="p-4">廠商名稱</th>
+                    <th className="p-4">聯絡人</th>
+                    <th className="p-4">手機</th>
+                    <th className="p-4">電話</th>
+                    <th className="p-4">地址</th>
+                    <th className="p-4">備註</th>
+                    <th className="p-4 text-right">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {vendors.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="text-center py-12 text-slate-400">目前沒有維修廠商資料</td>
+                    </tr>
+                  ) : (
+                    vendors.map((v) => (
+                      <tr key={v.id} className="hover:bg-slate-50/50 transition">
+                        <td className="p-4 font-mono font-bold text-slate-800">{v.vendorNo}</td>
+                        <td className="p-4 font-bold text-slate-800">{v.name}</td>
+                        <td className="p-4 text-slate-600">{v.contact}</td>
+                        <td className="p-4 text-slate-600 font-mono">{v.phone}</td>
+                        <td className="p-4 text-slate-600 font-mono">{v.tel}</td>
+                        <td className="p-4 text-slate-600">{v.address}</td>
+                        <td className="p-4 text-slate-500">{v.remark}</td>
+                        <td className="p-4 text-right space-x-3">
+                          <button
+                            onClick={() => openEditVendorModal(v)}
+                            className="text-blue-600 hover:text-blue-800 font-bold"
+                          >
+                            編輯
+                          </button>
+                          <button
+                            onClick={() => handleDeleteVendor(v.id)}
+                            className="text-rose-500 hover:text-rose-700 font-bold"
+                          >
+                            刪除
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 新增維修廠商彈出視窗 */}
+      {isAddVendorModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-xl space-y-4 animate-in fade-in zoom-in duration-150">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="text-sm font-bold text-slate-800">新增維修廠商</h3>
+              <button onClick={() => setIsAddVendorModalOpen(false)} className="text-slate-400 hover:text-rose-600 text-base">×</button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 text-xs">
+              <div>
+                <label className="text-slate-400 block mb-1">廠商編號</label>
+                <input
+                  type="text"
+                  value={vendorNoInput}
+                  onChange={(e) => setVendorNoInput(e.target.value)}
+                  placeholder="選填"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">廠商名稱 *</label>
+                <input
+                  type="text"
+                  value={vendorNameInput}
+                  onChange={(e) => setVendorNameInput(e.target.value)}
+                  placeholder="請輸入廠商名稱"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">聯絡人</label>
+                <input
+                  type="text"
+                  value={vendorContactInput}
+                  onChange={(e) => setVendorContactInput(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">手機</label>
+                <input
+                  type="text"
+                  value={vendorPhoneInput}
+                  onChange={(e) => setVendorPhoneInput(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">電話</label>
+                <input
+                  type="text"
+                  value={vendorTelInput}
+                  onChange={(e) => setVendorTelInput(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">地址</label>
+                <input
+                  type="text"
+                  value={vendorAddressInput}
+                  onChange={(e) => setVendorAddressInput(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="text-slate-400 block mb-1">備註</label>
+                <textarea
+                  value={vendorRemarkInput}
+                  onChange={(e) => setVendorRemarkInput(e.target.value)}
+                  rows={2}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => setIsAddVendorModalOpen(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleCreateVendor}
+                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-sm"
+              >
+                新增
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 編輯維修廠商彈出視窗 */}
+      {isEditVendorModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-xl space-y-4 animate-in fade-in zoom-in duration-150">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="text-sm font-bold text-slate-800">編輯維修廠商</h3>
+              <button onClick={() => setIsEditVendorModalOpen(false)} className="text-slate-400 hover:text-rose-600 text-base">×</button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 text-xs">
+              <div>
+                <label className="text-slate-400 block mb-1">廠商編號</label>
+                <input
+                  type="text"
+                  value={vendorNoInput}
+                  onChange={(e) => setVendorNoInput(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">廠商名稱 *</label>
+                <input
+                  type="text"
+                  value={vendorNameInput}
+                  onChange={(e) => setVendorNameInput(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">聯絡人</label>
+                <input
+                  type="text"
+                  value={vendorContactInput}
+                  onChange={(e) => setVendorContactInput(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">手機</label>
+                <input
+                  type="text"
+                  value={vendorPhoneInput}
+                  onChange={(e) => setVendorPhoneInput(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">電話</label>
+                <input
+                  type="text"
+                  value={vendorTelInput}
+                  onChange={(e) => setVendorTelInput(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">地址</label>
+                <input
+                  type="text"
+                  value={vendorAddressInput}
+                  onChange={(e) => setVendorAddressInput(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="text-slate-400 block mb-1">備註</label>
+                <textarea
+                  value={vendorRemarkInput}
+                  onChange={(e) => setVendorRemarkInput(e.target.value)}
+                  rows={2}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => setIsEditVendorModalOpen(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleUpdateVendor}
+                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-sm"
+              >
+                儲存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 進貨紀錄明細彈出視窗 */}
       {selectedPurchase && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -800,7 +1169,7 @@ export default function RepairManagementPage() {
                   />
                 </div>
                 <div>
-                  <label className="text-slate-400 block mb-1">預設成本</label>
+                  <label className="text-slate-400 block mb-1">成本價 ($)</label>
                   <input
                     type="number"
                     value={newPartCost}
@@ -809,267 +1178,21 @@ export default function RepairManagementPage() {
                   />
                 </div>
               </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  onClick={() => setIsAddPartModalOpen(false)}
-                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold transition"
-                >
-                  取消
-                </button>
-                <button
-                  onClick={handleSavePart}
-                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-sm transition"
-                >
-                  確認新增
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 新增維修單 Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-6 max-w-xl w-full shadow-xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b pb-3">
-              <h3 className="text-sm font-bold text-slate-800">新增維修單</h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-rose-600 text-base">×</button>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1.5 rounded-2xl">
+            <div className="flex justify-end gap-3 pt-4 border-t">
               <button
-                onClick={() => setModalMode('general')}
-                className={`py-2 rounded-xl text-xs font-bold transition ${modalMode === 'general' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
+                onClick={() => setIsAddPartModalOpen(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition"
               >
-                一般維修
+                取消
               </button>
               <button
-                onClick={() => setModalMode('outsource')}
-                className={`py-2 rounded-xl text-xs font-bold transition ${modalMode === 'outsource' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500'}`}
+                onClick={handleSavePart}
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-sm"
               >
-                🔗 委外維修
+                確認新增
               </button>
-            </div>
-
-            <div className="space-y-4 text-xs">
-              <div className="space-y-1 relative">
-                <label className="text-slate-400 block">客戶 *</label>
-                <input
-                  type="text"
-                  value={custInput}
-                  onChange={(e) => {
-                    setCustInput(e.target.value);
-                    setIsCustDropdownOpen(true);
-                  }}
-                  onFocus={() => setIsCustDropdownOpen(true)}
-                  placeholder="搜尋客戶姓名或電話..."
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
-                />
-                <button 
-                  onClick={() => setIsCustModalOpen(true)}
-                  className="mt-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-xl font-bold flex items-center gap-1 shadow-sm"
-                >
-                  + 快速建立新客戶
-                </button>
-
-                {isCustDropdownOpen && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-20 max-h-40 overflow-y-auto">
-                    {filteredCustomers.length === 0 ? (
-                      <div className="p-3 text-center space-y-2">
-                        <p className="text-slate-400">找不到符合的客戶</p>
-                        <button
-                          onClick={() => {
-                            setNewCustPhone(custInput.match(/^\d+$/) ? custInput : '');
-                            setIsCustDropdownOpen(false);
-                            setIsCustModalOpen(true);
-                          }}
-                          className="px-3 py-1 bg-blue-600 text-white rounded-xl font-bold"
-                        >
-                          + 新增客戶「{custInput}」
-                        </button>
-                      </div>
-                    ) : (
-                      filteredCustomers.map(c => (
-                        <div
-                          key={c.id}
-                          onClick={() => {
-                            setCustInput(`${c.name} (${c.phone})`);
-                            setIsCustDropdownOpen(false);
-                          }}
-                          className="px-3 py-2 hover:bg-blue-50 cursor-pointer flex justify-between border-b border-slate-50"
-                        >
-                          <span className="font-bold text-slate-800">{c.name}</span>
-                          <span className="text-slate-400 font-mono">{c.phone}</span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-slate-400 block mb-1">品牌</label>
-                  <input
-                    type="text"
-                    value={brand}
-                    onChange={(e) => setBrand(e.target.value)}
-                    placeholder="Apple / Samsung..."
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
-                  />
-                </div>
-                <div>
-                  <label className="text-slate-400 block mb-1">機型 *</label>
-                  <input
-                    type="text"
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                    placeholder="iPhone 15"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-slate-400 block mb-1">顏色</label>
-                  <input
-                    type="text"
-                    value={color}
-                    onChange={(e) => setColor(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
-                  />
-                </div>
-                <div>
-                  <label className="text-slate-400 block mb-1">序號 / IMEI</label>
-                  <input
-                    type="text"
-                    value={imei}
-                    onChange={(e) => setImei(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono"
-                  />
-                </div>
-              </div>
-
-              {modalMode === 'outsource' && (
-                <div>
-                  <label className="text-slate-400 block mb-1">委外店家</label>
-                  <input
-                    type="text"
-                    value={outsourcer}
-                    onChange={(e) => setOutsourcer(e.target.value)}
-                    placeholder="店家名稱或地址..."
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
-                  />
-                </div>
-              )}
-
-              <div>
-                <label className="text-slate-400 block mb-1">問題描述 *</label>
-                <textarea
-                  value={problem}
-                  onChange={(e) => setProblem(e.target.value)}
-                  placeholder="描述客戶反映的問題..."
-                  rows={3}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3"
-                ></textarea>
-              </div>
-
-              {modalMode === 'general' ? (
-                <div className="grid grid-cols-4 gap-2">
-                  <div>
-                    <label className="text-slate-400 block mb-1">報價 (元)</label>
-                    <input type="number" value={price} onChange={(e) => setPrice(Number(e.target.value))} className="w-full bg-slate-50 border rounded-xl px-2.5 py-2 font-mono" />
-                  </div>
-                  <div>
-                    <label className="text-slate-400 block mb-1">維修費 (元)</label>
-                    <input type="number" value={repairFee} onChange={(e) => setRepairFee(Number(e.target.value))} className="w-full bg-slate-50 border rounded-xl px-2.5 py-2 font-mono" />
-                  </div>
-                  <div>
-                    <label className="text-slate-400 block mb-1">訂金 (元)</label>
-                    <input type="number" value={deposit} onChange={(e) => setDeposit(Number(e.target.value))} className="w-full bg-slate-50 border rounded-xl px-2.5 py-2 font-mono" />
-                  </div>
-                  <div>
-                    <label className="text-slate-400 block mb-1">檢測費 (元)</label>
-                    <input type="number" value={checkFee} onChange={(e) => setCheckFee(Number(e.target.value))} className="w-full bg-slate-50 border rounded-xl px-2.5 py-2 font-mono" />
-                  </div>
-                </div>
-              ) : (
-                <div className="grid grid-cols-4 gap-2">
-                  <div>
-                    <label className="text-slate-400 block mb-1">維修報價 (元)</label>
-                    <input type="number" value={price} onChange={(e) => setPrice(Number(e.target.value))} className="w-full bg-slate-50 border rounded-xl px-2.5 py-2 font-mono" />
-                  </div>
-                  <div>
-                    <label className="text-slate-400 block mb-1">廠商報價 (元)</label>
-                    <input type="number" value={outsourcerPrice} onChange={(e) => setOutsourcerPrice(Number(e.target.value))} className="w-full bg-slate-50 border rounded-xl px-2.5 py-2 font-mono" />
-                  </div>
-                  <div>
-                    <label className="text-slate-400 block mb-1">訂金 (元)</label>
-                    <input type="number" value={deposit} onChange={(e) => setDeposit(Number(e.target.value))} className="w-full bg-slate-50 border rounded-xl px-2.5 py-2 font-mono" />
-                  </div>
-                  <div>
-                    <label className="text-slate-400 block mb-1">檢測費 (元)</label>
-                    <input type="number" value={checkFee} onChange={(e) => setCheckFee(Number(e.target.value))} className="w-full bg-slate-50 border rounded-xl px-2.5 py-2 font-mono" />
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <label className="text-slate-400 block mb-1">備註</label>
-                <input
-                  type="text"
-                  value={remark}
-                  onChange={(e) => setRemark(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
-                />
-              </div>
-
-              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl flex justify-between items-center">
-                <div>
-                  <p className="font-bold text-slate-800">客戶手機解鎖密碼</p>
-                  <p className="text-[10px] text-slate-400">供維修人員解鎖手機使用，客戶可親自輸入</p>
-                </div>
-                <input
-                  type="text"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="輸入解鎖密碼"
-                  className="bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs w-32 font-mono"
-                />
-              </div>
-
-              <button
-                onClick={handleSaveRepair}
-                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-sm transition mt-2"
-              >
-                確認送出
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 快速新增客戶 Modal */}
-      {isCustModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-xl space-y-4">
-            <div className="flex justify-between items-center border-b pb-3">
-              <h3 className="text-sm font-bold text-slate-800">快速建立新客戶</h3>
-              <button onClick={() => setIsCustModalOpen(false)} className="text-slate-400 hover:text-rose-600 text-base">×</button>
-            </div>
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="text-slate-400 block mb-1">客戶姓名</label>
-                <input type="text" value={newCustName} onChange={(e) => setNewCustName(e.target.value)} placeholder="例：王小明" className="w-full bg-slate-50 border rounded-xl px-3 py-2" />
-              </div>
-              <div>
-                <label className="text-slate-400 block mb-1">聯絡電話</label>
-                <input type="text" value={newCustPhone} onChange={(e) => setNewCustPhone(e.target.value)} placeholder="例：0912345678" className="w-full bg-slate-50 border rounded-xl px-3 py-2 font-mono" />
-              </div>
-              <button onClick={handleCreateCustomer} className="w-full py-2.5 bg-blue-600 text-white rounded-xl font-bold shadow-sm">確認新增並選取</button>
             </div>
           </div>
         </div>
