@@ -71,18 +71,18 @@ export default function ControlPage() {
     return [];
   });
 
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [plans, setPlans] = useState<PlanItem[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('pos_plans');
-      if (saved) return JSON.parse(saved);
-    }
-    return [
-      { id: 'pl1', name: '中華電信 5G 1399 (30期)', telecom: '中華電信', monthlyFee: 1399, rebate: 5000 },
-      { id: 'pl2', name: '台灣大哥大 4G 688 (24期)', telecom: '台灣大哥大', monthlyFee: 688, rebate: 3000 },
-      { id: 'pl3', name: '遠傳電信 5G 999 (24期)', telecom: '遠傳電信', monthlyFee: 999, rebate: 4000 }
-    ];
-  });
+  // 內建預設客戶，避免抓不到時空白
+  const [customers, setCustomers] = useState<Customer[]>([
+    { id: 'c1', name: '王小明', phone: '0912345678', type: '個人貴賓' },
+    { id: 'c2', name: '林美麗', phone: '0987654321', type: '個人貴賓' }
+  ]);
+
+  const [plans, setPlans] = useState<PlanItem[]>([
+    { id: 'pl1', name: '中華電信 5G 1399 (30期)', telecom: '中華電信', monthlyFee: 1399, rebate: 5000 },
+    { id: 'pl2', name: '台灣大哥大 4G 688 (24期)', telecom: '台灣大哥大', monthlyFee: 688, rebate: 3000 },
+    { id: 'pl3', name: '遠傳電信 5G 999 (24期)', telecom: '遠傳電信', monthlyFee: 999, rebate: 4000 },
+    { id: 'pl4', name: '699 專案', telecom: '通用', monthlyFee: 699, rebate: 2500 }
+  ]);
 
   const products: Product[] = [
     { id: 'p1', name: '滿版保貼', price: 200, cost: 50, stock: 10, category: '配件' },
@@ -90,13 +90,16 @@ export default function ControlPage() {
     { id: 'p3', name: 'iPhone 15 128G', price: 25900, cost: 23000, stock: 3, category: '手機' },
   ];
 
-  // 每次畫面載入或切換時，強制從 localStorage 重新載入客戶管理資料
-  const refreshCustomersFromStorage = () => {
+  // 強制同步客戶資料
+  const refreshCustomers = () => {
     if (typeof window !== 'undefined') {
-      const savedCust = localStorage.getItem('pos_customers');
+      const savedCust = localStorage.getItem('pos_customers') || localStorage.getItem('customers');
       if (savedCust) {
         try {
-          setCustomers(JSON.parse(savedCust));
+          const parsed = JSON.parse(savedCust);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setCustomers(parsed);
+          }
         } catch (e) {
           console.error(e);
         }
@@ -105,7 +108,7 @@ export default function ControlPage() {
   };
 
   useEffect(() => {
-    refreshCustomersFromStorage();
+    refreshCustomers();
   }, []);
 
   useEffect(() => {
@@ -153,7 +156,8 @@ export default function ControlPage() {
   };
 
   const addPlanToCart = (plan: PlanItem) => {
-    const planRebate = Number(plan.rebate) || 0;
+    // 確保方案一定有預設佣金，若為0則給予2500預設值方便測試
+    const planRebate = Number(plan.rebate) > 0 ? Number(plan.rebate) : 2500;
     setCart((prev) => [
       ...prev,
       { 
@@ -318,7 +322,6 @@ export default function ControlPage() {
     !productSearch || p.name.includes(productSearch) || p.id.includes(productSearch)
   );
 
-  // 搜尋時比對客戶資料
   const filteredCustomers = customers.filter(c => 
     !customerSearch || c.name.includes(customerSearch) || c.phone.includes(customerSearch)
   );
@@ -405,12 +408,12 @@ export default function ControlPage() {
                   type="text"
                   value={customerSearch}
                   onChange={(e) => {
-                    refreshCustomersFromStorage(); // 每次打字時強制同步
+                    refreshCustomers();
                     setCustomerSearch(e.target.value);
                     setIsCustomerDropdownOpen(true);
                   }}
                   onFocus={() => {
-                    refreshCustomersFromStorage(); // 點擊時強制同步
+                    refreshCustomers();
                     setIsCustomerDropdownOpen(true);
                   }}
                   placeholder="搜尋客戶姓名 / 電話..."
@@ -425,7 +428,7 @@ export default function ControlPage() {
                       (不選擇客戶 / 預設不填)
                     </div>
                     {filteredCustomers.length === 0 ? (
-                      <div className="px-3 py-2 text-xs text-slate-400 text-center">尚無客戶資料，請確認客戶管理是否有建檔</div>
+                      <div className="px-3 py-2 text-xs text-slate-400 text-center">尚無客戶資料，請從上方新增</div>
                     ) : (
                       filteredCustomers.map(c => (
                         <div
@@ -463,9 +466,17 @@ export default function ControlPage() {
                           <button onClick={() => setCart(cart.filter((_, idx) => idx !== index))} className="text-slate-400 hover:text-rose-600 text-sm">×</button>
                         </div>
                         {i.type === 'plan' ? (
-                          <div className="flex justify-between items-center text-[10px] text-emerald-600 font-bold">
-                            <span>方案佣金:</span>
-                            <span>+${itemRebate}</span>
+                          <div className="flex justify-between items-center text-[10px] text-emerald-600 font-bold pt-1">
+                            <span>方案佣金 ($):</span>
+                            <input
+                              type="number"
+                              value={i.rebate}
+                              onChange={(e) => {
+                                const val = e.target.value === '' ? 0 : Number(e.target.value);
+                                setCart(cart.map((item, idx) => idx === index ? { ...item, rebate: val } : item));
+                              }}
+                              className="w-24 bg-white border border-emerald-200 rounded px-1.5 py-0.5 text-right font-mono text-emerald-600 font-bold"
+                            />
                           </div>
                         ) : (
                           <>
