@@ -68,7 +68,6 @@ export default function ControlPage() {
     return [];
   });
 
-  // 從 localStorage 讀取「客戶管理」的資料（若無則給預設值）
   const [customers, setCustomers] = useState<Customer[]>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('pos_customers');
@@ -80,7 +79,6 @@ export default function ControlPage() {
     ];
   });
 
-  // 從 localStorage 讀取「方案管理」的資料（若無則給預設值）
   const [plans, setPlans] = useState<PlanItem[]>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('pos_plans');
@@ -103,7 +101,6 @@ export default function ControlPage() {
     localStorage.setItem('pos_sales_records', JSON.stringify(salesRecords));
   }, [salesRecords]);
 
-  // 監聽並自動同步其他頁面（客戶管理 / 方案管理）可能更新的資料
   useEffect(() => {
     const handleStorageChange = () => {
       const savedCust = localStorage.getItem('pos_customers');
@@ -115,34 +112,28 @@ export default function ControlPage() {
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
-  // 銷貨結帳相關狀態
   const [cart, setCart] = useState<CartItem[]>([]);
   const [productSearch, setProductSearch] = useState('');
   
-  // 客戶搜尋與選擇狀態
+  // 客戶搜尋預設清空，不帶入預設客戶
   const [customerSearch, setCustomerSearch] = useState('');
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
 
-  // 方案搜尋狀態
   const [planSearch, setPlanSearch] = useState('');
 
-  // 多組付款方式狀態
   const [payments, setPayments] = useState<PaymentEntry[]>([
     { id: 'pay-1', method: '現金', installments: '3' }
   ]);
 
-  // Modal 控制
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
 
-  // 自訂項目表單
   const [customType, setCustomType] = useState<'自訂配件/商品' | '維修服務'>('自訂配件/商品');
   const [customName, setCustomName] = useState('');
   const [customPrice, setCustomPrice] = useState<number>(0);
   const [customCost, setCustomCost] = useState<number>(0);
 
-  // 快速建立會員表單
   const [newCustName, setNewCustName] = useState('');
   const [newCustPhone, setNewCustPhone] = useState('');
 
@@ -162,8 +153,8 @@ export default function ControlPage() {
       { 
         id: `plan-${plan.id}-${Date.now()}`, 
         name: `[方案] ${plan.name}`, 
-        price: 0, // 選取方案不代入月租，金額預設為0可手動修改
-        cost: -plan.rebate, // 佣金自動計入毛利
+        price: 0, // 確保初始售價為 0 數字
+        cost: -Number(plan.rebate || 0), // 佣金自動計入毛利，確保為數值
         quantity: 1, 
         type: 'plan' 
       }
@@ -220,14 +211,21 @@ export default function ControlPage() {
     return 0;
   };
 
-  const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const subtotal = cart.reduce((sum, item) => sum + (Number(item.price) || 0) * item.quantity, 0);
   const totalFeeAmount = payments.reduce((sum, p) => {
     const rate = getSingleFeeRate(p.method, p.installments);
     return sum + Math.round(subtotal * rate);
   }, 0);
 
   const totalAmountWithFee = subtotal + totalFeeAmount;
-  const baseProfit = cart.reduce((sum, item) => sum + (item.price - item.cost) * item.quantity, 0);
+  
+  // 修正毛利計算防呆，確保減法運算不會出現 NaN
+  const baseProfit = cart.reduce((sum, item) => {
+    const pPrice = Number(item.price) || 0;
+    const pCost = Number(item.cost) || 0;
+    return sum + (pPrice - pCost) * item.quantity;
+  }, 0);
+  
   const totalProfit = baseProfit - totalFeeAmount;
 
   const handleCheckout = () => {
@@ -252,19 +250,20 @@ export default function ControlPage() {
 
     setSalesRecords([newRecord, ...salesRecords]);
     alert(`結帳成功！單號：${orderNo}`);
+    
+    // 結帳成功後清空購物車與客戶選擇
     setCart([]);
+    setCustomerSearch('');
   };
 
   const filteredProducts = products.filter(p => 
     !productSearch || p.name.includes(productSearch) || p.id.includes(productSearch)
   );
 
-  // 對應客戶管理的資料進行搜尋
   const filteredCustomers = customers.filter(c => 
     c.name.includes(customerSearch) || c.phone.includes(customerSearch)
   );
 
-  // 對應方案管理的資料進行搜尋
   const filteredPlans = plans.filter(pl =>
     !planSearch || pl.name.includes(planSearch) || pl.telecom.includes(planSearch)
   );
@@ -343,7 +342,7 @@ export default function ControlPage() {
                 <button onClick={() => setCart([])} className="text-[10px] text-slate-400 hover:text-rose-600">清空</button>
               </div>
 
-              {/* 客戶搜尋與選擇 (與客戶管理資料完全連動) */}
+              {/* 客戶搜尋與選擇 */}
               <div className="space-y-1 relative">
                 <div className="flex justify-between items-center text-[10px] text-slate-400">
                   <span>客戶 (選填，個人貴賓可不選)</span>
@@ -390,30 +389,35 @@ export default function ControlPage() {
                 {cart.length === 0 ? (
                   <p className="text-xs text-slate-400 text-center py-10">尚未加入品項或方案</p>
                 ) : (
-                  cart.map((i, index) => (
-                    <div key={i.id} className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 space-y-1 text-xs">
-                      <div className="flex justify-between items-center font-bold text-slate-800">
-                        <span>{i.name}</span>
-                        <button onClick={() => setCart(cart.filter((_, idx) => idx !== index))} className="text-slate-400 hover:text-rose-600 text-sm">×</button>
+                  cart.map((i, index) => {
+                    const itemPrice = Number(i.price) || 0;
+                    const itemCost = Number(i.cost) || 0;
+                    const itemProfit = (itemPrice - itemCost) * i.quantity;
+                    return (
+                      <div key={i.id} className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 space-y-1 text-xs">
+                        <div className="flex justify-between items-center font-bold text-slate-800">
+                          <span>{i.name}</span>
+                          <button onClick={() => setCart(cart.filter((_, idx) => idx !== index))} className="text-slate-400 hover:text-rose-600 text-sm">×</button>
+                        </div>
+                        <div className="flex justify-between items-center text-[10px] text-slate-500">
+                          <span>售價 ($):</span>
+                          <input
+                            type="number"
+                            value={i.price}
+                            onChange={(e) => {
+                              const val = e.target.value === '' ? 0 : Number(e.target.value);
+                              setCart(cart.map((item, idx) => idx === index ? { ...item, price: val } : item));
+                            }}
+                            className="w-20 bg-white border border-slate-200 rounded px-1.5 py-0.5 text-right font-mono"
+                          />
+                        </div>
+                        <div className="flex justify-between items-center text-[10px] text-emerald-600 font-bold">
+                          <span>預估毛利:</span>
+                          <span>{itemProfit >= 0 ? `+$${itemProfit}` : `-$${Math.abs(itemProfit)}`}</span>
+                        </div>
                       </div>
-                      <div className="flex justify-between items-center text-[10px] text-slate-500">
-                        <span>售價 ($):</span>
-                        <input
-                          type="number"
-                          value={i.price}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            setCart(cart.map((item, idx) => idx === index ? { ...item, price: val } : item));
-                          }}
-                          className="w-20 bg-white border border-slate-200 rounded px-1.5 py-0.5 text-right font-mono"
-                        />
-                      </div>
-                      <div className="flex justify-between items-center text-[10px] text-emerald-600 font-bold">
-                        <span>預估毛利:</span>
-                        <span>+${(i.price - i.cost) * i.quantity}</span>
-                      </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
 
@@ -498,7 +502,7 @@ export default function ControlPage() {
               <div className="border-t pt-4 space-y-3">
                 <div className="flex justify-between text-xs font-mono">
                   <span className="text-slate-400">預估總毛利：</span>
-                  <span className="text-emerald-600 font-bold">+${totalProfit}</span>
+                  <span className="text-emerald-600 font-bold">{totalProfit >= 0 ? `+$${totalProfit}` : `-$${Math.abs(totalProfit)}`}</span>
                 </div>
                 <div className="flex justify-between text-sm font-bold">
                   <span>總金額：</span>
@@ -560,7 +564,7 @@ export default function ControlPage() {
         </div>
       )}
 
-      {/* 彈跳視窗：選擇電信方案 (搜尋時直接對應方案管理的資料) */}
+      {/* 彈跳視窗：選擇電信方案 */}
       {isPlanModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-6 w-full max-w-lg space-y-4 shadow-xl">
