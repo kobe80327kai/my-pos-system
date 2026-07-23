@@ -43,8 +43,10 @@ export default function CustomersPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategoryTab, setSelectedCategoryTab] = useState<string>('全部');
 
-  // ---- Modal 開關與表單 ----
+  // ---- Modal 開關與表單 (新增 / 編輯共用) ----
   const [isAddCustomerModalOpen, setIsAddCustomerModalOpen] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null); // 💡 追蹤目前是否處於編輯狀態
+  
   const [newCustomer, setNewCustomer] = useState<{
     id: string;
     category: string;
@@ -67,6 +69,10 @@ export default function CustomersPage() {
     address: '',
   });
 
+  // ---- 超級刪除 Modal 相關 State ----
+  const [isSuperDeleteModalOpen, setIsSuperDeleteModalOpen] = useState(false);
+  const [selectedIdsForDelete, setSelectedIdsForDelete] = useState<string[]>([]);
+
   // ---- 銷售歷史 Modal 相關 State ----
   const [isSalesModalOpen, setIsSalesModalOpen] = useState(false);
   const [activeCustomerForSales, setActiveCustomerForSales] = useState<Customer | null>(null);
@@ -87,7 +93,6 @@ export default function CustomersPage() {
       if (error) {
         console.error('讀取客戶資料失敗：', error.message);
       } else if (data) {
-        // 將資料庫欄位名稱轉為前端所需的結構
         const mappedData: Customer[] = data.map((item: any) => ({
           id: item.id,
           name: item.name || '',
@@ -138,14 +143,13 @@ export default function CustomersPage() {
     }
   };
 
-  // ---- 核心：修復後的刪除客戶（發送 Supabase DELETE API） ----
+  // ---- 核心：單筆刪除客戶 ----
   const handleDeleteCustomer = async (id: string, name: string) => {
     if (!confirm(`確定要永久刪除客戶 [${name}] (${id}) 嗎？`)) {
       return;
     }
 
     try {
-      // 1. 向 Supabase 發送刪除指令
       const { error } = await supabase
         .from('customers')
         .delete()
@@ -156,7 +160,6 @@ export default function CustomersPage() {
         return;
       }
 
-      // 2. 刪除成功後更新前端列表 State
       setCustomers((prev) => prev.filter((c) => c.id !== id));
       alert(`已成功刪除客戶 [${name}]！`);
     } catch (err) {
@@ -165,8 +168,42 @@ export default function CustomersPage() {
     }
   };
 
-  // ---- 核心：修復後的新增客戶（寫入 Supabase） ----
-  const handleCreateCustomer = async (e: React.FormEvent) => {
+  // ---- 核心：開啟編輯 Modal ----
+  const handleOpenEditModal = (customer: Customer) => {
+    setEditingCustomer(customer);
+    setNewCustomer({
+      id: customer.id,
+      category: customer.category,
+      name: customer.name,
+      phone: customer.phone,
+      idNumber: customer.idNumber === '—' ? '' : (customer.idNumber || ''),
+      birthday: customer.birthday === '—' ? '' : (customer.birthday || ''),
+      gender: customer.gender,
+      note: customer.note === '—' ? '' : (customer.note || ''),
+      address: customer.address === '—' ? '' : (customer.address || ''),
+    });
+    setIsAddCustomerModalOpen(true);
+  };
+
+  // ---- 核心：開啟新增 Modal ----
+  const handleOpenAddModal = () => {
+    setEditingCustomer(null);
+    setNewCustomer({
+      id: '',
+      category: '舊客',
+      name: '',
+      phone: '',
+      idNumber: '',
+      birthday: '',
+      gender: '男',
+      note: '',
+      address: '',
+    });
+    setIsAddCustomerModalOpen(true);
+  };
+
+  // ---- 核心：新增或更新客戶（寫入 Supabase） ----
+  const handleSaveCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCustomer.name.trim() || !newCustomer.phone.trim()) {
       alert('請填寫姓名與電話！');
@@ -177,7 +214,7 @@ export default function CustomersPage() {
       newCustomer.id.trim() ||
       `CST${(customers.length + 1).toString().padStart(5, '0')}`;
 
-    const newCustomerData = {
+    const payload = {
       id: autoId,
       name: newCustomer.name,
       phone: newCustomer.phone,
@@ -187,38 +224,71 @@ export default function CustomersPage() {
       gender: newCustomer.gender,
       address: newCustomer.address || '—',
       note: newCustomer.note || '—',
-      sales_history: [],
     };
+
+    try {
+      if (editingCustomer) {
+        // 編輯模式：更新 Supabase
+        const { error } = await supabase
+          .from('customers')
+          .update(payload)
+          .eq('id', editingCustomer.id);
+
+        if (error) {
+          alert(`更新客戶失敗：${error.message}`);
+          return;
+        }
+        alert('客戶資料更新成功！');
+      } else {
+        // 新增模式：插入 Supabase
+        const { error } = await supabase
+          .from('customers')
+          .insert([{ ...payload, sales_history: [] }]);
+
+        if (error) {
+          alert(`新增客戶失敗：${error.message}`);
+          return;
+        }
+      }
+
+      await fetchCustomers();
+      setIsAddCustomerModalOpen(false);
+      setEditingCustomer(null);
+    } catch (err) {
+      console.error('儲存客戶時發生錯誤：', err);
+      alert('儲存失敗，請重試。');
+    }
+  };
+
+  // ---- 核心：批次刪除（超級刪除） ----
+  const handleSuperDelete = async () => {
+    if (selectedIdsForDelete.length === 0) {
+      alert('請至少勾選一位要刪除的客戶！');
+      return;
+    }
+
+    if (!confirm(`確定要批次刪除選中的 ${selectedIdsForDelete.length筆} 客戶嗎？此動作無法復原！`)) {
+      return;
+    }
 
     try {
       const { error } = await supabase
         .from('customers')
-        .insert([newCustomerData]);
+        .delete()
+        .in('id', selectedIdsForDelete);
 
       if (error) {
-        alert(`新增客戶失敗：${error.message}`);
+        alert(`批次刪除失敗：${error.message}`);
         return;
       }
 
-      // 重新整理資料
-      await fetchCustomers();
-
-      setIsAddCustomerModalOpen(false);
-
-      setNewCustomer({
-        id: '',
-        category: '舊客',
-        name: '',
-        phone: '',
-        idNumber: '',
-        birthday: '',
-        gender: '男',
-        note: '',
-        address: '',
-      });
+      setCustomers((prev) => prev.filter((c) => !selectedIdsForDelete.includes(c.id)));
+      setSelectedIdsForDelete([]);
+      setIsSuperDeleteModalOpen(false);
+      alert('批次刪除成功！');
     } catch (err) {
-      console.error('新增客戶時發生錯誤：', err);
-      alert('新增客戶失敗，請重試。');
+      console.error('批次刪除發生錯誤：', err);
+      alert('批次刪除發生例外錯誤。');
     }
   };
 
@@ -246,13 +316,16 @@ export default function CustomersPage() {
             🔄 重新整理
           </button>
           <button
-            onClick={() => alert('超級刪除功能')}
+            onClick={() => {
+              setSelectedIdsForDelete([]);
+              setIsSuperDeleteModalOpen(true);
+            }}
             className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-500 rounded-xl text-xs font-semibold transition"
           >
             超級刪除
           </button>
           <button
-            onClick={() => setIsAddCustomerModalOpen(true)}
+            onClick={handleOpenAddModal}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition flex items-center gap-1"
           >
             <span>＋</span> 新增客戶
@@ -394,15 +467,21 @@ export default function CustomersPage() {
                       <button
                         title="銷售歷史"
                         onClick={() => handleOpenSalesHistory(customer)}
-                        className="hover:text-blue-600 transition"
+                        className="hover:text-blue-600 transition cursor-pointer"
                       >
                         🕒
                       </button>
-                      <button title="編輯" className="hover:text-blue-600 transition">✏️</button>
+                      <button
+                        title="編輯"
+                        onClick={() => handleOpenEditModal(customer)}
+                        className="hover:text-blue-600 transition cursor-pointer"
+                      >
+                        ✏️
+                      </button>
                       <button
                         title="刪除"
                         onClick={() => handleDeleteCustomer(customer.id, customer.name)}
-                        className="hover:text-rose-500 transition"
+                        className="hover:text-rose-500 transition cursor-pointer"
                       >
                         🗑️
                       </button>
@@ -419,8 +498,6 @@ export default function CustomersPage() {
       {isSalesModalOpen && activeCustomerForSales && (
         <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl overflow-hidden border border-slate-100 animate-in fade-in zoom-in-95 duration-150">
-            
-            {/* Modal 標頭 */}
             <div className="px-8 py-5 border-b border-slate-100 flex justify-between items-center">
               <h2 className="text-sm font-bold text-slate-800">
                 {activeCustomerForSales.name} ({activeCustomerForSales.phone}) — 銷售歷史
@@ -433,7 +510,6 @@ export default function CustomersPage() {
               </button>
             </div>
 
-            {/* Modal 內容 */}
             <div className="p-8 space-y-3 min-h-[200px] max-h-[60vh] overflow-y-auto bg-slate-50/50">
               {activeCustomerForSales.salesHistory && activeCustomerForSales.salesHistory.length > 0 ? (
                 activeCustomerForSales.salesHistory.map((record, index) => (
@@ -461,7 +537,6 @@ export default function CustomersPage() {
               )}
             </div>
 
-            {/* Modal 底部 */}
             <div className="px-8 py-4 border-t border-slate-100 bg-white flex justify-end">
               <button
                 type="button"
@@ -471,27 +546,89 @@ export default function CustomersPage() {
                 關閉
               </button>
             </div>
-
           </div>
         </div>
       )}
 
-      {/* 👤 新增客戶 Modal */}
+      {/* ⚠️ 超級刪除 (批次刪除) Modal */}
+      {isSuperDeleteModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100">
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-rose-50/50">
+              <h2 className="text-sm font-bold text-rose-600">⚠️ 超級刪除：批次刪除客戶</h2>
+              <button onClick={() => setIsSuperDeleteModalOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+            <div className="p-6 space-y-4 max-h-[50vh] overflow-y-auto">
+              <p className="text-xs text-slate-500">請勾選要刪除的客戶：</p>
+              <div className="space-y-2">
+                {customers.map((c) => {
+                  const isChecked = selectedIdsForDelete.includes(c.id);
+                  return (
+                    <label key={c.id} className="flex items-center justify-between p-2.5 rounded-xl border border-slate-100 hover:bg-slate-50 text-xs cursor-pointer">
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedIdsForDelete([...selectedIdsForDelete, c.id]);
+                            } else {
+                              setSelectedIdsForDelete(selectedIdsForDelete.filter((id) => id !== c.id));
+                            }
+                          }}
+                          className="rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                        />
+                        <span className="font-bold text-slate-800">{c.name}</span>
+                        <span className="text-slate-400">({c.phone})</span>
+                      </div>
+                      <span className="font-mono text-slate-400">{c.id}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center">
+              <span className="text-xs text-slate-500">已選取 <strong className="text-rose-600">{selectedIdsForDelete.length}</strong> 位客戶</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setIsSuperDeleteModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs bg-slate-200 text-slate-700 hover:bg-slate-300 transition"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleSuperDelete}
+                  className="px-4 py-2 rounded-xl text-xs bg-rose-600 text-white hover:bg-rose-700 font-semibold transition"
+                >
+                  確認批次刪除
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 👤 新增 / 編輯客戶 Modal */}
       {isAddCustomerModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-100">
             
-            <div className="px-8 py-5 border-b border-slate-100 flex justify-between items-center">
-              <h2 className="text-base font-bold text-slate-800">新增客戶</h2>
+            <div className="px-8 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <h2 className="text-base font-bold text-slate-800">
+                {editingCustomer ? '✏️ 編輯客戶資料' : '＋ 新增客戶'}
+              </h2>
               <button
-                onClick={() => setIsAddCustomerModalOpen(false)}
+                onClick={() => {
+                  setIsAddCustomerModalOpen(false);
+                  setEditingCustomer(null);
+                }}
                 className="text-slate-400 hover:text-slate-600 text-lg"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleCreateCustomer} className="p-8 space-y-5">
+            <form onSubmit={handleSaveCustomer} className="p-8 space-y-5">
               <div>
                 <label className="text-xs text-slate-600 font-medium mb-1.5 block">
                   客戶編號 <span className="text-slate-400 font-normal">（ 留空自動產生 ）</span>
@@ -499,9 +636,10 @@ export default function CustomersPage() {
                 <input
                   type="text"
                   value={newCustomer.id}
+                  disabled={!!editingCustomer} // 編輯時通常不允許修改編號
                   onChange={(e) => setNewCustomer({ ...newCustomer, id: e.target.value })}
-                  placeholder="自動產生，如 C24010001"
-                  className="w-full border border-slate-200 rounded-2xl px-4 py-2.5 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition placeholder:text-slate-300"
+                  placeholder="自動產生，如 CST00001"
+                  className="w-full border border-slate-200 rounded-2xl px-4 py-2.5 text-xs text-slate-700 focus:outline-none focus:border-blue-500 transition placeholder:text-slate-300 disabled:bg-slate-100 disabled:text-slate-400"
                 />
               </div>
 
@@ -515,7 +653,7 @@ export default function CustomersPage() {
                         key={cat}
                         type="button"
                         onClick={() => setNewCustomer({ ...newCustomer, category: cat })}
-                        className={`px-4 py-2 rounded-xl text-xs font-medium border transition ${
+                        className={`px-4 py-2 rounded-xl text-xs font-medium border transition cursor-pointer ${
                           isSelected
                             ? 'bg-blue-50 text-blue-600 border-blue-400 font-bold'
                             : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
@@ -616,16 +754,19 @@ export default function CustomersPage() {
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setIsAddCustomerModalOpen(false)}
-                  className="px-6 py-2.5 rounded-xl text-xs text-slate-600 border border-slate-200 bg-white hover:bg-slate-50 font-medium transition"
+                  onClick={() => {
+                    setIsAddCustomerModalOpen(false);
+                    setEditingCustomer(null);
+                  }}
+                  className="px-6 py-2.5 rounded-xl text-xs text-slate-600 border border-slate-200 bg-white hover:bg-slate-50 font-medium transition cursor-pointer"
                 >
                   取消
                 </button>
                 <button
                   type="submit"
-                  className="px-7 py-2.5 rounded-xl text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold transition shadow-sm"
+                  className="px-7 py-2.5 rounded-xl text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold transition shadow-sm cursor-pointer"
                 >
-                  儲存
+                  {editingCustomer ? '確認更新' : '儲存'}
                 </button>
               </div>
             </form>
