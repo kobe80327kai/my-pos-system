@@ -21,8 +21,8 @@ interface RepairRecord {
   id: string;
   repairNo: string;
   date: string;
-  cost: number;        // 委外維修支出
-  price: number;       // 維修收款金額
+  cost: number;        
+  price: number;       
   deviceModel: string;
   faultDesc: string;
   createdAt?: string;
@@ -85,28 +85,37 @@ export default function ReportsPage() {
       if (salesData) {
         setSalesRecords(salesData.map((item: any) => ({
           id: item.id,
-          orderNo: item.order_no,
-          date: item.date,
+          orderNo: item.order_no || item.orderNo || 'ORD',
+          date: item.date || item.created_at?.split('T')[0] || getTodayStr(),
           createdAt: item.created_at || item.date,
-          items: typeof item.items === 'string' ? JSON.parse(item.items) : item.items,
-          totalAmount: Number(item.total_amount),
-          profit: Number(item.profit),
+          items: typeof item.items === 'string' ? JSON.parse(item.items) : (item.items || []),
+          totalAmount: Number(item.total_amount || item.totalAmount || 0),
+          profit: Number(item.profit || 0),
         })));
       }
 
-      // 2. 抓取維修紀錄 (包含維修收款與委外維修支出)
+      // 2. 抓取維修紀錄 (多欄位相容防呆)
       const { data: repairData, error: repairError } = await supabase.from('repairs').select('*').order('created_at', { ascending: false });
       if (!repairError && repairData) {
-        setRepairRecords(repairData.map((item: any) => ({
-          id: item.id,
-          repairNo: item.repair_no || item.id.slice(0, 8),
-          date: item.date || item.created_at?.split('T')[0] || getTodayStr(),
-          cost: Number(item.cost || 0),         // 委外維修支出
-          price: Number(item.price || 0),       // 維修收款金額
-          deviceModel: item.device_model || item.deviceModel || '維修裝置',
-          faultDesc: item.fault_desc || item.faultDesc || '維修服務',
-          createdAt: item.created_at || item.date,
-        })));
+        setRepairRecords(repairData.map((item: any) => {
+          const priceVal = Number(item.price || item.total_price || item.totalPrice || item.amount || 0);
+          const costVal = Number(item.cost || item.outsource_cost || item.outsourceCost || 0);
+          const repairNoVal = item.repair_no || item.repairNo || item.order_no || item.id?.slice(0, 8) || 'REP';
+          const dateVal = item.date || item.created_at?.split('T')[0] || getTodayStr();
+          const deviceVal = item.device_model || item.deviceModel || item.model || '維修裝置';
+          const faultVal = item.fault_desc || item.faultDesc || item.description || '維修服務';
+
+          return {
+            id: item.id,
+            repairNo: repairNoVal,
+            date: dateVal,
+            cost: costVal,
+            price: priceVal,
+            deviceModel: deviceVal,
+            faultDesc: faultVal,
+            createdAt: item.created_at || dateVal,
+          };
+        }));
       }
 
       // 3. 抓取其他收支紀錄
@@ -116,10 +125,10 @@ export default function ReportsPage() {
           id: item.id,
           type: item.type,
           category: item.category,
-          paymentMethod: item.payment_method,
-          amount: Number(item.amount),
-          remark: item.remark,
-          date: item.date,
+          paymentMethod: item.payment_method || item.paymentMethod || '現金',
+          amount: Number(item.amount || 0),
+          remark: item.remark || '',
+          date: item.date || item.created_at?.split('T')[0] || getTodayStr(),
           createdAt: item.created_at || item.date,
         })));
       }
@@ -191,7 +200,7 @@ export default function ReportsPage() {
 
   const totalIncome = currentDaySalesTotal + currentDayRepairIncomeTotal + currentDayOtherIncomeTotal;
 
-  // 支出計算 (雜支 + 委外維修支出)
+  // 支出計算
   const currentDayRepairCostTotal = currentDayRepairs.reduce((sum, r) => sum + r.cost, 0);
   const currentDayExpenseTrans = currentDayTrans.filter(t => t.type === 'expense');
   const currentDayExpenseTransTotal = currentDayExpenseTrans.reduce((sum, t) => sum + t.amount, 0);
@@ -199,7 +208,7 @@ export default function ReportsPage() {
 
   const netIncome = totalIncome - totalExpense;
 
-  // 款項結算 (現金、轉帳、其他)
+  // 款項結算
   const getPaymentTotal = (method: string) => {
     const cashSales = method === '現金' ? currentDaySalesTotal + currentDayRepairIncomeTotal : 0;
     const transSum = currentDayTrans
@@ -290,7 +299,7 @@ export default function ReportsPage() {
               onClick={() => setShowSalesDetailModal(true)}
               className="bg-slate-50 hover:bg-slate-100 cursor-pointer rounded-2xl p-3.5 flex justify-between items-center text-xs transition"
             >
-              <span className="text-blue-600 font-medium">銷售與收入小計 (點擊看明細)</span>
+              <span className="text-blue-600 font-medium">銷售與維修收入小計 (點擊看明細)</span>
               <span className="font-mono font-bold text-slate-700">{currentDaySales.length + currentDayRepairs.length} 筆 <span className="text-blue-600 ml-1">${(currentDaySalesTotal + currentDayRepairIncomeTotal).toLocaleString()}</span></span>
             </div>
             {currentDayTrans.filter(t => t.type === 'income').map((t, idx) => (
@@ -442,7 +451,7 @@ export default function ReportsPage() {
                 <div key={`s-${i}`} className="grid grid-cols-12 items-center bg-slate-50 rounded-2xl p-3 text-xs">
                   <span className="col-span-2 text-slate-500 font-mono">{s.createdAt ? s.createdAt.slice(11, 16) : '----'}</span>
                   <span className="col-span-3 text-slate-700 font-mono font-medium">{s.orderNo}</span>
-                  <span className="col-span-5 text-slate-800">{s.items.map(i => `${i.name} x${i.quantity}`).join('、')}</span>
+                  <span className="col-span-5 text-slate-800">{s.items.map(it => `${it.name} x${it.quantity}`).join('、')}</span>
                   <span className="col-span-2 text-right font-mono font-bold text-emerald-600">+${s.totalAmount.toLocaleString()}</span>
                 </div>
               ))}
