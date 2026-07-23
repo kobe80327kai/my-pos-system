@@ -9,6 +9,7 @@ interface SaleRecord {
   date: string;
   totalAmount: number;
   profit: number;
+  createdAt?: string;
   items: {
     name: string;
     price: number;
@@ -16,19 +17,33 @@ interface SaleRecord {
   }[];
 }
 
+interface RepairRecord {
+  id: string;
+  repairNo: string;
+  date: string;
+  cost: number;        // 委外維修支出
+  price: number;       // 維修收款金額
+  deviceModel: string;
+  faultDesc: string;
+  createdAt?: string;
+}
+
 interface TransactionRecord {
   id: string;
-  type: 'expense' | 'income'; // 支出 或 雜收
+  type: 'expense' | 'income';
   category: string;
   paymentMethod: string;
   amount: number;
   remark: string;
   date: string;
+  createdAt?: string;
 }
 
 export default function ReportsPage() {
   const [salesRecords, setSalesRecords] = useState<SaleRecord[]>([]);
+  const [repairRecords, setRepairRecords] = useState<RepairRecord[]>([]);
   const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
+  
   const [cashBalance, setCashBalance] = useState<number>(40000);
   const [isEditingCash, setIsEditingCash] = useState(false);
   const [tempCash, setTempCash] = useState('40000');
@@ -36,6 +51,8 @@ export default function ReportsPage() {
   // 彈跳視窗狀態
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [showIncomeModal, setShowIncomeModal] = useState(false);
+  const [showSalesDetailModal, setShowSalesDetailModal] = useState(false);
+  const [showExpenseDetailModal, setShowExpenseDetailModal] = useState(false);
 
   // 表單輸入狀態
   const [expenseCategory, setExpenseCategory] = useState('收機');
@@ -70,13 +87,29 @@ export default function ReportsPage() {
           id: item.id,
           orderNo: item.order_no,
           date: item.date,
+          createdAt: item.created_at || item.date,
           items: typeof item.items === 'string' ? JSON.parse(item.items) : item.items,
           totalAmount: Number(item.total_amount),
           profit: Number(item.profit),
         })));
       }
 
-      // 2. 抓取收支紀錄 (若您的Supabase資料表叫 transactions)
+      // 2. 抓取維修紀錄 (包含維修收款與委外維修支出)
+      const { data: repairData, error: repairError } = await supabase.from('repairs').select('*').order('created_at', { ascending: false });
+      if (!repairError && repairData) {
+        setRepairRecords(repairData.map((item: any) => ({
+          id: item.id,
+          repairNo: item.repair_no || item.id.slice(0, 8),
+          date: item.date || item.created_at?.split('T')[0] || getTodayStr(),
+          cost: Number(item.cost || 0),         // 委外維修支出
+          price: Number(item.price || 0),       // 維修收款金額
+          deviceModel: item.device_model || item.deviceModel || '維修裝置',
+          faultDesc: item.fault_desc || item.faultDesc || '維修服務',
+          createdAt: item.created_at || item.date,
+        })));
+      }
+
+      // 3. 抓取其他收支紀錄
       const { data: transData, error: transError } = await supabase.from('transactions').select('*').order('created_at', { ascending: false });
       if (!transError && transData) {
         setTransactions(transData.map((item: any) => ({
@@ -87,6 +120,7 @@ export default function ReportsPage() {
           amount: Number(item.amount),
           remark: item.remark,
           date: item.date,
+          createdAt: item.created_at || item.date,
         })));
       }
     } catch (err) {
@@ -110,7 +144,7 @@ export default function ReportsPage() {
       date: selectedDate
     };
 
-    const { data, error } = await supabase.from('transactions').insert([newRecord]).select();
+    const { error } = await supabase.from('transactions').insert([newRecord]);
     if (error) {
       alert('新增失敗，請檢查 Supabase 資料表 transactions 是否建立');
       console.error(error);
@@ -134,7 +168,7 @@ export default function ReportsPage() {
       date: selectedDate
     };
 
-    const { data, error } = await supabase.from('transactions').insert([newRecord]).select();
+    const { error } = await supabase.from('transactions').insert([newRecord]);
     if (error) {
       alert('新增失敗，請檢查 Supabase 資料表 transactions 是否建立');
       console.error(error);
@@ -146,27 +180,33 @@ export default function ReportsPage() {
     }
   };
 
-  // 當日資料計算
+  // 當日過濾資料
   const currentDaySales = salesRecords.filter(r => r.date === selectedDate);
-  const currentDaySalesTotal = currentDaySales.reduce((sum, r) => sum + r.totalAmount, 0);
-
+  const currentDayRepairs = repairRecords.filter(r => r.date === selectedDate);
   const currentDayTrans = transactions.filter(t => t.date === selectedDate);
-  const currentDayOtherIncomeTrans = currentDayTrans.filter(t => t.type === 'income');
+
+  const currentDaySalesTotal = currentDaySales.reduce((sum, r) => sum + r.totalAmount, 0);
+  const currentDayRepairIncomeTotal = currentDayRepairs.reduce((sum, r) => sum + r.price, 0);
+  const currentDayOtherIncomeTotal = currentDayTrans.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
+
+  const totalIncome = currentDaySalesTotal + currentDayRepairIncomeTotal + currentDayOtherIncomeTotal;
+
+  // 支出計算 (雜支 + 委外維修支出)
+  const currentDayRepairCostTotal = currentDayRepairs.reduce((sum, r) => sum + r.cost, 0);
   const currentDayExpenseTrans = currentDayTrans.filter(t => t.type === 'expense');
+  const currentDayExpenseTransTotal = currentDayExpenseTrans.reduce((sum, t) => sum + t.amount, 0);
+  const totalExpense = currentDayRepairCostTotal + currentDayExpenseTransTotal;
 
-  const currentDayOtherIncomeTotal = currentDayOtherIncomeTrans.reduce((sum, t) => sum + t.amount, 0);
-  const currentDayExpenseTotal = currentDayExpenseTrans.reduce((sum, t) => sum + t.amount, 0);
+  const netIncome = totalIncome - totalExpense;
 
-  const totalIncome = currentDaySalesTotal + currentDayOtherIncomeTotal;
-  const netIncome = totalIncome - currentDayExpenseTotal;
-
-  // 各支付方式統計 (包含現金、轉帳、其他)
+  // 款項結算 (現金、轉帳、其他)
   const getPaymentTotal = (method: string) => {
-    const cashSales = method === '現金' ? currentDaySalesTotal : 0;
+    const cashSales = method === '現金' ? currentDaySalesTotal + currentDayRepairIncomeTotal : 0;
     const transSum = currentDayTrans
       .filter(t => t.paymentMethod === method)
       .reduce((sum, t) => sum + (t.type === 'income' ? t.amount : -t.amount), 0);
-    return cashSales + transSum;
+    const repairCostSub = method === '現金' ? currentDayRepairCostTotal : 0;
+    return cashSales + transSum - repairCostSub;
   };
 
   const cashTotal = getPaymentTotal('現金');
@@ -175,16 +215,17 @@ export default function ReportsPage() {
 
   // 盈餘報表區間計算
   const reportSales = salesRecords.filter(r => r.date >= reportStartDate && r.date <= reportEndDate);
+  const reportRepairs = repairRecords.filter(r => r.date >= reportStartDate && r.date <= reportEndDate);
   const reportTrans = transactions.filter(t => t.date >= reportStartDate && t.date <= reportEndDate);
 
-  const reportTotalSales = reportSales.reduce((sum, r) => sum + r.totalAmount, 0);
+  const reportTotalSales = reportSales.reduce((sum, r) => sum + r.totalAmount, 0) + reportRepairs.reduce((sum, r) => sum + r.price, 0);
   const reportTotalCommission = reportSales.reduce((sum, r) => {
     const planItem = r.items.find(i => i.name.includes('方案'));
     return sum + (planItem ? r.profit : 0);
   }, 0) + reportTrans.filter(t => t.type === 'income' && t.category === '傭金收入').reduce((sum, t) => sum + t.amount, 0);
 
   const reportOtherIncome = reportTrans.filter(t => t.type === 'income' && t.category !== '傭金收入').reduce((sum, t) => sum + t.amount, 0);
-  const reportExpense = reportTrans.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
+  const reportExpense = reportRepairs.reduce((sum, r) => sum + r.cost, 0) + reportTrans.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
   const reportTotalProfit = reportTotalSales + reportOtherIncome - reportExpense;
 
   return (
@@ -221,7 +262,7 @@ export default function ReportsPage() {
           <div className="w-2 h-10 bg-emerald-500 rounded-full"></div>
           <div>
             <span className="text-xs text-slate-400 font-medium">今日淨收入</span>
-            <h2 className="text-3xl font-mono font-bold text-emerald-600 mt-0.5">${netIncome.toLocaleString()}</h2>
+            <h2 className={`text-3xl font-mono font-bold mt-0.5 ${netIncome >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>${netIncome.toLocaleString()}</h2>
           </div>
         </div>
         <div className="flex gap-4">
@@ -231,25 +272,29 @@ export default function ReportsPage() {
           </div>
           <div className="bg-rose-50/60 px-5 py-3 rounded-2xl border border-rose-100 text-right">
             <span className="text-xs text-rose-500 font-medium">總支出</span>
-            <p className="text-lg font-mono font-bold text-rose-500">${currentDayExpenseTotal.toLocaleString()}</p>
+            <p className="text-lg font-mono font-bold text-rose-500">${totalExpense.toLocaleString()}</p>
           </div>
         </div>
       </div>
 
       {/* 收入明細與支出區塊 */}
       <div className="grid grid-cols-2 gap-6">
+        {/* 收入明細 */}
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-4">
           <div className="flex justify-between items-center">
             <span className="text-sm font-bold text-slate-800 flex items-center gap-2">📝 收入明細</span>
             <span className="text-xs font-mono font-bold text-emerald-600">${totalIncome.toLocaleString()}</span>
           </div>
           <div className="space-y-2">
-            <div className="bg-slate-50 rounded-2xl p-3 flex justify-between items-center text-xs">
-              <span className="text-blue-600 font-medium">銷售與收入小計</span>
-              <span className="font-mono font-bold text-slate-700">{currentDaySales.length} 筆 <span className="text-blue-600 ml-1">${currentDaySalesTotal.toLocaleString()}</span></span>
+            <div 
+              onClick={() => setShowSalesDetailModal(true)}
+              className="bg-slate-50 hover:bg-slate-100 cursor-pointer rounded-2xl p-3.5 flex justify-between items-center text-xs transition"
+            >
+              <span className="text-blue-600 font-medium">銷售與收入小計 (點擊看明細)</span>
+              <span className="font-mono font-bold text-slate-700">{currentDaySales.length + currentDayRepairs.length} 筆 <span className="text-blue-600 ml-1">${(currentDaySalesTotal + currentDayRepairIncomeTotal).toLocaleString()}</span></span>
             </div>
-            {currentDayOtherIncomeTrans.map((t, idx) => (
-              <div key={idx} className="bg-emerald-50/40 rounded-2xl p-3 flex justify-between items-center text-xs border border-emerald-100">
+            {currentDayTrans.filter(t => t.type === 'income').map((t, idx) => (
+              <div key={idx} className="bg-emerald-50/40 rounded-2xl p-3.5 flex justify-between items-center text-xs border border-emerald-100">
                 <span className="text-emerald-700 font-medium">{t.category} ({t.remark || '無備註'})</span>
                 <span className="font-mono font-bold text-emerald-600">+${t.amount.toLocaleString()}</span>
               </div>
@@ -257,17 +302,31 @@ export default function ReportsPage() {
           </div>
         </div>
 
+        {/* 支出區塊 */}
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-4">
           <div className="flex justify-between items-center">
-            <span className="text-sm font-bold text-slate-800 flex items-center gap-2">📉 支出 ( 雜支 )</span>
-            <span className="text-xs font-mono font-bold text-rose-500">${currentDayExpenseTotal.toLocaleString()}</span>
+            <span className="text-sm font-bold text-slate-800 flex items-center gap-2">📉 支出明細</span>
+            <span className="text-xs font-mono font-bold text-rose-500">${totalExpense.toLocaleString()}</span>
           </div>
-          {currentDayExpenseTrans.length === 0 ? (
+          {totalExpense === 0 ? (
             <div className="bg-slate-50 rounded-2xl p-8 text-center text-xs text-slate-400">今日無支出記錄</div>
           ) : (
             <div className="space-y-2">
+              <div 
+                onClick={() => setShowExpenseDetailModal(true)}
+                className="bg-slate-50 hover:bg-slate-100 cursor-pointer rounded-2xl p-3.5 flex justify-between items-center text-xs transition"
+              >
+                <span className="text-rose-600 font-medium">支出與委外維修小計 (點擊看明細)</span>
+                <span className="font-mono font-bold text-slate-700">{currentDayRepairs.filter(r => r.cost > 0).length + currentDayExpenseTrans.length} 筆 <span className="text-rose-600 ml-1">-${totalExpense.toLocaleString()}</span></span>
+              </div>
+              {currentDayRepairs.filter(r => r.cost > 0).map((r, idx) => (
+                <div key={`rep-${idx}`} className="bg-rose-50/40 rounded-2xl p-3.5 flex justify-between items-center text-xs border border-rose-100">
+                  <span className="text-rose-700 font-medium">委外維修支出 ({r.deviceModel} - {r.repairNo})</span>
+                  <span className="font-mono font-bold text-rose-600">-${r.cost.toLocaleString()}</span>
+                </div>
+              ))}
               {currentDayExpenseTrans.map((t, idx) => (
-                <div key={idx} className="bg-rose-50/40 rounded-2xl p-3 flex justify-between items-center text-xs border border-rose-100">
+                <div key={`trans-${idx}`} className="bg-rose-50/40 rounded-2xl p-3.5 flex justify-between items-center text-xs border border-rose-100">
                   <span className="text-rose-700 font-medium">{t.category} ({t.remark || '無備註'}) - {t.paymentMethod}</span>
                   <span className="font-mono font-bold text-rose-600">-${t.amount.toLocaleString()}</span>
                 </div>
@@ -318,7 +377,7 @@ export default function ReportsPage() {
           <div className="p-4 bg-emerald-50/60 rounded-2xl border border-emerald-200/60 flex justify-between items-center">
             <div>
               <span className="text-xs text-emerald-700 font-medium">本日結算</span>
-              <p className="text-xl font-mono font-bold text-emerald-600 mt-0.5">${(cashBalance + netIncome).toLocaleString()}</p>
+              <p className={`text-xl font-mono font-bold mt-0.5 ${(cashBalance + netIncome) >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>${(cashBalance + netIncome).toLocaleString()}</p>
             </div>
           </div>
         </div>
@@ -342,7 +401,7 @@ export default function ReportsPage() {
 
         <div className="grid grid-cols-5 gap-4">
           <div className="p-5 bg-slate-50/50 rounded-2xl border border-slate-100 space-y-1">
-            <span className="text-xs text-slate-400 font-medium">銷售金額</span>
+            <span className="text-xs text-slate-400 font-medium">銷售與維修金額</span>
             <p className="text-xl font-mono font-bold text-slate-800">${reportTotalSales.toLocaleString()}</p>
           </div>
           <div className="p-5 bg-purple-50/40 rounded-2xl border border-purple-100/50 space-y-1">
@@ -354,7 +413,7 @@ export default function ReportsPage() {
             <p className="text-xl font-mono font-bold text-emerald-600">${reportOtherIncome.toLocaleString()}</p>
           </div>
           <div className="p-5 bg-rose-50/40 rounded-2xl border border-rose-100/50 space-y-1">
-            <span className="text-xs text-rose-500 font-medium">雜支</span>
+            <span className="text-xs text-rose-500 font-medium">雜支與委外維修</span>
             <p className="text-xl font-mono font-bold text-rose-500">-${reportExpense.toLocaleString()}</p>
           </div>
           <div className="p-5 bg-emerald-50/60 rounded-2xl border-2 border-emerald-500/40 space-y-1 shadow-sm">
@@ -363,6 +422,86 @@ export default function ReportsPage() {
           </div>
         </div>
       </div>
+
+      {/* 銷售與維修收入逐筆明細彈跳視窗 */}
+      {showSalesDetailModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-3xl p-6 w-[700px] max-h-[80vh] overflow-y-auto space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="text-base font-bold text-slate-800">全部銷售與維修收入 —— 逐筆明細 ({currentDaySales.length + currentDayRepairs.length} 筆)</h3>
+              <button onClick={() => setShowSalesDetailModal(false)} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+            </div>
+            <div className="space-y-2">
+              <div className="grid grid-cols-12 text-xs font-bold text-slate-400 px-3">
+                <span className="col-span-2">時間</span>
+                <span className="col-span-3">單號</span>
+                <span className="col-span-5">收入內容</span>
+                <span className="col-span-2 text-right">金額</span>
+              </div>
+              {currentDaySales.map((s, i) => (
+                <div key={`s-${i}`} className="grid grid-cols-12 items-center bg-slate-50 rounded-2xl p-3 text-xs">
+                  <span className="col-span-2 text-slate-500 font-mono">{s.createdAt ? s.createdAt.slice(11, 16) : '----'}</span>
+                  <span className="col-span-3 text-slate-700 font-mono font-medium">{s.orderNo}</span>
+                  <span className="col-span-5 text-slate-800">{s.items.map(i => `${i.name} x${i.quantity}`).join('、')}</span>
+                  <span className="col-span-2 text-right font-mono font-bold text-emerald-600">+${s.totalAmount.toLocaleString()}</span>
+                </div>
+              ))}
+              {currentDayRepairs.map((r, i) => (
+                <div key={`r-${i}`} className="grid grid-cols-12 items-center bg-emerald-50/30 rounded-2xl p-3 text-xs border border-emerald-100">
+                  <span className="col-span-2 text-slate-500 font-mono">{r.createdAt ? r.createdAt.slice(11, 16) : '----'}</span>
+                  <span className="col-span-3 text-slate-700 font-mono font-medium">{r.repairNo}</span>
+                  <span className="col-span-5 text-slate-800">維修收款：{r.deviceModel} ({r.faultDesc})</span>
+                  <span className="col-span-2 text-right font-mono font-bold text-emerald-600">+${r.price.toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+            <div className="border-t pt-3 flex justify-between items-center text-sm font-bold">
+              <span>合計</span>
+              <span className="font-mono text-emerald-600">+${(currentDaySalesTotal + currentDayRepairIncomeTotal).toLocaleString()}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 支出與委外維修逐筆明細彈跳視窗 */}
+      {showExpenseDetailModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-3xl p-6 w-[700px] max-h-[80vh] overflow-y-auto space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="text-base font-bold text-slate-800">全部支出與委外維修 —— 逐筆明細</h3>
+              <button onClick={() => setShowExpenseDetailModal(false)} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+            </div>
+            <div className="space-y-2">
+              <div className="grid grid-cols-12 text-xs font-bold text-slate-400 px-3">
+                <span className="col-span-2">時間</span>
+                <span className="col-span-3">類別 / 單號</span>
+                <span className="col-span-5">說明 / 備註</span>
+                <span className="col-span-2 text-right">金額</span>
+              </div>
+              {currentDayRepairs.filter(r => r.cost > 0).map((r, i) => (
+                <div key={`rcost-${i}`} className="grid grid-cols-12 items-center bg-rose-50/30 rounded-2xl p-3 text-xs border border-rose-100">
+                  <span className="col-span-2 text-slate-500 font-mono">{r.createdAt ? r.createdAt.slice(11, 16) : '----'}</span>
+                  <span className="col-span-3 text-rose-700 font-mono font-medium">委外維修</span>
+                  <span className="col-span-5 text-slate-800">{r.deviceModel} ({r.repairNo})</span>
+                  <span className="col-span-2 text-right font-mono font-bold text-rose-600">-${r.cost.toLocaleString()}</span>
+                </div>
+              ))}
+              {currentDayExpenseTrans.map((t, i) => (
+                <div key={`texp-${i}`} className="grid grid-cols-12 items-center bg-rose-50/30 rounded-2xl p-3 text-xs border border-rose-100">
+                  <span className="col-span-2 text-slate-500 font-mono">{t.createdAt ? t.createdAt.slice(11, 16) : '----'}</span>
+                  <span className="col-span-3 text-rose-700 font-mono font-medium">{t.category} ({t.paymentMethod})</span>
+                  <span className="col-span-5 text-slate-800">{t.remark || '無備註'}</span>
+                  <span className="col-span-2 text-right font-mono font-bold text-rose-600">-${t.amount.toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+            <div className="border-t pt-3 flex justify-between items-center text-sm font-bold">
+              <span>合計</span>
+              <span className="font-mono text-rose-600">-${totalExpense.toLocaleString()}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 新增支出彈跳視窗 */}
       {showExpenseModal && (
