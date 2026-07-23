@@ -20,6 +20,12 @@ interface CartItem {
   type: 'product' | 'plan' | 'custom' | 'repair';
 }
 
+interface PaymentEntry {
+  id: string;
+  method: string;
+  installments: string;
+}
+
 interface SaleRecord {
   id: string;
   orderNo: string;
@@ -43,7 +49,7 @@ interface PlanItem {
   name: string;
   telecom: string;
   monthlyFee: number;
-  rebate: number; // 佣金
+  rebate: number;
 }
 
 export default function ControlPage() {
@@ -54,7 +60,6 @@ export default function ControlPage() {
 
   const [activeTab, setActiveTab] = useState<'checkout' | 'records' | 'reports'>('checkout');
 
-  // 資料狀態
   const [salesRecords, setSalesRecords] = useState<SaleRecord[]>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('pos_sales_records');
@@ -63,13 +68,11 @@ export default function ControlPage() {
     return [];
   });
 
-  // 客戶清單 (可與客戶管理連動)
   const [customers, setCustomers] = useState<Customer[]>([
     { id: 'c1', name: '林活揚', phone: '0956-096936' },
     { id: 'c2', name: '王小明', phone: '0912-345678' }
   ]);
 
-  // 方案清單 (與方案管理連動)
   const [plans, setPlans] = useState<PlanItem[]>([
     { id: 'pl1', name: '中華電信 5G 1399 (30期)', telecom: '中華電信', monthlyFee: 1399, rebate: 5000 },
     { id: 'pl2', name: '台灣大哥大 4G 688 (24期)', telecom: '台灣大哥大', monthlyFee: 688, rebate: 3000 }
@@ -88,9 +91,15 @@ export default function ControlPage() {
   // 銷貨結帳相關狀態
   const [cart, setCart] = useState<CartItem[]>([]);
   const [productSearch, setProductSearch] = useState('');
-  const [selectedCustomer, setSelectedCustomer] = useState(''); // 預設不填
-  const [paymentMethod, setPaymentMethod] = useState('現金');
-  const [installments, setInstallments] = useState('3'); // 分期期數
+  
+  // 客戶搜尋與選擇狀態
+  const [customerSearch, setCustomerSearch] = useState('林活揚 (0956-096936)');
+  const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
+
+  // 多組付款方式狀態
+  const [payments, setPayments] = useState<PaymentEntry[]>([
+    { id: 'pay-1', method: '現金', installments: '3' }
+  ]);
 
   // Modal 控制
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
@@ -154,32 +163,36 @@ export default function ControlPage() {
     }
     const newC: Customer = { id: `c-${Date.now()}`, name: newCustName, phone: newCustPhone };
     setCustomers([...customers, newC]);
-    setSelectedCustomer(`${newC.name} (${newC.phone})`);
+    setCustomerSearch(`${newC.name} (${newC.phone})`);
     setNewCustName('');
     setNewCustPhone('');
     setIsCustomerModalOpen(false);
   };
 
-  // 手續費率計算邏輯
-  const getFeeRate = () => {
-    if (paymentMethod === '現金') return 0;
-    if (paymentMethod === '刷卡') return 0.02; // 刷卡 -2%
-    if (paymentMethod === '刷卡分期') {
-      if (installments === '3') return 0.03;  // 3期 -3%
-      if (installments === '6') return 0.04;  // 6期 -4%
-      if (installments === '12') return 0.06; // 12期 -6%
-      return 0.08; // 18/24期預設
+  // 計算單一付款方式的手續費率
+  const getSingleFeeRate = (method: string, inst: string) => {
+    if (method === '現金' || method === '轉帳/匯款') return 0;
+    if (method === '刷卡') return 0.02;
+    if (method === '刷卡分期') {
+      if (inst === '3') return 0.03;
+      if (inst === '6') return 0.04;
+      if (inst === '12') return 0.06;
+      return 0.08; // 18/24期
     }
     return 0;
   };
 
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const feeRate = getFeeRate();
-  const feeAmount = Math.round(subtotal * feeRate);
-  const totalAmountWithFee = subtotal + feeAmount; // 總金額含手續費加成
 
+  // 總手續費加成計算 (平均分攤或加總)
+  const totalFeeAmount = payments.reduce((sum, p) => {
+    const rate = getSingleFeeRate(p.method, p.installments);
+    return sum + Math.round(subtotal * rate);
+  }, 0);
+
+  const totalAmountWithFee = subtotal + totalFeeAmount;
   const baseProfit = cart.reduce((sum, item) => sum + (item.price - item.cost) * item.quantity, 0);
-  const totalProfit = baseProfit - feeAmount; // 毛利扣除手續費
+  const totalProfit = baseProfit - totalFeeAmount;
 
   const handleCheckout = () => {
     if (cart.length === 0) {
@@ -187,16 +200,18 @@ export default function ControlPage() {
       return;
     }
     const orderNo = `SD${getTodayStr().replace(/-/g, '').slice(2)}${Math.floor(100 + Math.random() * 900)}`;
+    const paymentDesc = payments.map(p => p.method === '刷卡分期' ? `刷卡分期(${p.installments}期)` : p.method).join(', ');
+
     const newRecord: SaleRecord = {
       id: `sr-${Date.now()}`,
       orderNo,
       date: getTodayStr(),
-      customerName: selectedCustomer ? selectedCustomer.split(' ')[0] : '散客',
+      customerName: customerSearch ? customerSearch.split(' ')[0] : '散客',
       salesperson: '管理員',
       items: cart.map(i => ({ name: i.name, price: i.price, cost: i.cost, quantity: i.quantity })),
       totalAmount: totalAmountWithFee,
       profit: totalProfit,
-      paymentInfo: paymentMethod === '刷卡分期' ? `刷卡分期(${installments}期)` : paymentMethod
+      paymentInfo: paymentDesc
     };
 
     setSalesRecords([newRecord, ...salesRecords]);
@@ -206,6 +221,10 @@ export default function ControlPage() {
 
   const filteredProducts = products.filter(p => 
     !productSearch || p.name.includes(productSearch) || p.id.includes(productSearch)
+  );
+
+  const filteredCustomers = customers.filter(c => 
+    c.name.includes(customerSearch) || c.phone.includes(customerSearch)
   );
 
   return (
@@ -230,7 +249,6 @@ export default function ControlPage() {
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             <div className="lg:col-span-8 space-y-4">
-              {/* 選擇方案區 */}
               <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/60 flex justify-between items-center">
                 <div>
                   <p className="text-xs font-bold text-slate-700">選擇方案</p>
@@ -239,7 +257,6 @@ export default function ControlPage() {
                 <button onClick={() => setIsPlanModalOpen(true)} className="px-4 py-2 bg-blue-50 text-blue-600 rounded-xl text-xs font-bold hover:bg-blue-100 transition">選擇方案</button>
               </div>
 
-              {/* 加入商品區 */}
               <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-4">
                 <p className="text-xs font-bold text-slate-700">加入商品</p>
                 <input
@@ -273,26 +290,50 @@ export default function ControlPage() {
                 <button onClick={() => setCart([])} className="text-[10px] text-slate-400 hover:text-rose-600">清空</button>
               </div>
 
-              {/* 客戶選擇 */}
-              <div className="space-y-1">
-                <span className="text-[10px] text-slate-400">客戶 (選填，個人貴賓可不選)</span>
-                <div className="flex items-center gap-2">
-                  <select 
-                    value={selectedCustomer} 
-                    onChange={(e) => setSelectedCustomer(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium"
-                  >
-                    <option value="">-- 請選擇客戶 (預設不填) --</option>
-                    {customers.map((c) => (
-                      <option key={c.id} value={`${c.name} (${c.phone})`}>{c.name} ({c.phone})</option>
-                    ))}
-                  </select>
-                  <button onClick={() => setIsCustomerModalOpen(true)} className="text-[10px] text-blue-600 font-bold whitespace-nowrap">+ 建立</button>
+              {/* 客戶搜尋與選擇 */}
+              <div className="space-y-1 relative">
+                <div className="flex justify-between items-center text-[10px] text-slate-400">
+                  <span>客戶 (選填，個人貴賓可不選)</span>
+                  <button onClick={() => setIsCustomerModalOpen(true)} className="text-blue-600 font-bold">+ 快速建立會員</button>
                 </div>
+                <input
+                  type="text"
+                  value={customerSearch}
+                  onChange={(e) => {
+                    setCustomerSearch(e.target.value);
+                    setIsCustomerDropdownOpen(true);
+                  }}
+                  onFocus={() => setIsCustomerDropdownOpen(true)}
+                  placeholder="搜尋客戶姓名 / 電話..."
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium"
+                />
+                {isCustomerDropdownOpen && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-20 max-h-40 overflow-y-auto">
+                    <div 
+                      onClick={() => { setCustomerSearch(''); setIsCustomerDropdownOpen(false); }}
+                      className="px-3 py-2 text-xs text-slate-400 hover:bg-slate-50 cursor-pointer border-b"
+                    >
+                      (不選擇客戶 / 散客)
+                    </div>
+                    {filteredCustomers.map(c => (
+                      <div
+                        key={c.id}
+                        onClick={() => {
+                          setCustomerSearch(`${c.name} (${c.phone})`);
+                          setIsCustomerDropdownOpen(false);
+                        }}
+                        className="px-3 py-2 text-xs hover:bg-blue-50 cursor-pointer flex justify-between"
+                      >
+                        <span className="font-bold text-slate-800">{c.name}</span>
+                        <span className="text-slate-400 font-mono">{c.phone}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              {/* 購物車品項清單 (可修改售價與毛利) */}
-              <div className="min-h-[140px] max-h-[220px] overflow-y-auto space-y-2 border-b border-slate-100 pb-4">
+              {/* 購物車品項清單 */}
+              <div className="min-h-[120px] max-h-[200px] overflow-y-auto space-y-2 border-b border-slate-100 pb-4">
                 {cart.length === 0 ? (
                   <p className="text-xs text-slate-400 text-center py-10">尚未加入品項或方案</p>
                 ) : (
@@ -323,7 +364,7 @@ export default function ControlPage() {
                 )}
               </div>
 
-              {/* 自訂項目 / 維修服務按鈕 */}
+              {/* 自訂項目按鈕 */}
               <button 
                 onClick={() => setIsCustomModalOpen(true)}
                 className="w-full py-2.5 bg-slate-50 hover:bg-slate-100 border border-dashed border-slate-300 rounded-xl text-xs font-bold text-slate-600 transition flex items-center justify-center gap-1.5"
@@ -331,28 +372,72 @@ export default function ControlPage() {
                 + 自訂項目 / 🛠️ 維修服務
               </button>
 
-              {/* 付款方式與分期 */}
-              <div className="space-y-2 text-xs pt-2">
-                <span className="text-slate-400 text-[10px]">付款方式與期數</span>
-                <div className="flex gap-2">
-                  <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-medium">
-                    <option value="現金">現金</option>
-                    <option value="刷卡">刷卡</option>
-                    <option value="刷卡分期">刷卡分期</option>
-                  </select>
-                  {paymentMethod === '刷卡分期' && (
-                    <select value={installments} onChange={(e) => setInstallments(e.target.value)} className="w-28 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-medium">
-                      <option value="3">3期 (3%)</option>
-                      <option value="6">6期 (4%)</option>
-                      <option value="12">12期 (6%)</option>
-                      <option value="18">18期 (8%)</option>
-                      <option value="24">24期 (8%)</option>
-                    </select>
-                  )}
+              {/* 多組付款方式與期數區塊 */}
+              <div className="space-y-3 pt-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 text-[10px]">付款方式與期數</span>
+                  <button 
+                    onClick={() => setPayments([...payments, { id: `pay-${Date.now()}`, method: '現金', installments: '3' }])}
+                    className="text-xs text-blue-600 font-bold hover:underline"
+                  >
+                    + 新增付款方式
+                  </button>
                 </div>
-                <div className="flex justify-between text-slate-400 text-[10px]">
-                  <span>手續費率: {feeRate * 100}%</span>
-                  <span>手續費加成: +${feeAmount}</span>
+
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {payments.map((p, pIdx) => {
+                    const singleRate = getSingleFeeRate(p.method, p.installments);
+                    const singleFee = Math.round(subtotal * singleRate);
+                    return (
+                      <div key={p.id} className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2 text-xs">
+                        <div className="flex items-center gap-2">
+                          <select 
+                            value={p.method} 
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setPayments(payments.map((item, idx) => idx === pIdx ? { ...item, method: val } : item));
+                            }} 
+                            className="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 font-medium"
+                          >
+                            <option value="現金">現金</option>
+                            <option value="轉帳/匯款">轉帳/匯款</option>
+                            <option value="刷卡">刷卡</option>
+                            <option value="刷卡分期">刷卡分期</option>
+                          </select>
+
+                          {p.method === '刷卡分期' && (
+                            <select 
+                              value={p.installments} 
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setPayments(payments.map((item, idx) => idx === pIdx ? { ...item, installments: val } : item));
+                              }} 
+                              className="w-32 bg-white border border-slate-200 rounded-xl px-2 py-1.5 font-medium"
+                            >
+                              <option value="3">3期 (3%)</option>
+                              <option value="6">6期 (4%)</option>
+                              <option value="12">12期 (6%)</option>
+                              <option value="18">18期 (8%)</option>
+                              <option value="24">24期 (8%)</option>
+                            </select>
+                          )}
+
+                          {payments.length > 1 && (
+                            <button 
+                              onClick={() => setPayments(payments.filter((_, idx) => idx !== pIdx))}
+                              className="text-slate-400 hover:text-rose-600 p-1"
+                            >
+                              🗑️
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex justify-between text-[10px] text-slate-400 px-1">
+                          <span>手續費率: {singleRate * 100}%</span>
+                          <span className="text-amber-600 font-bold">手續費加成: +${singleFee}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -422,7 +507,7 @@ export default function ControlPage() {
         </div>
       )}
 
-      {/* --- 彈跳視窗：選擇電信方案 --- */}
+      {/* 彈跳視窗：選擇電信方案 */}
       {isPlanModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-6 w-full max-w-lg space-y-4 shadow-xl">
@@ -443,7 +528,7 @@ export default function ControlPage() {
         </div>
       )}
 
-      {/* --- 彈跳視窗：新增自訂項目 / 維修服務 --- */}
+      {/* 彈跳視窗：新增自訂項目 / 維修服務 */}
       {isCustomModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-6 w-full max-w-md space-y-4 shadow-xl">
@@ -477,7 +562,7 @@ export default function ControlPage() {
         </div>
       )}
 
-      {/* --- 彈跳視窗：快速建立會員 --- */}
+      {/* 彈跳視窗：快速建立會員 */}
       {isCustomerModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-6 w-full max-w-sm space-y-4 shadow-xl">
