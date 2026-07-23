@@ -87,7 +87,7 @@ export default function ReportsPage() {
         setSalesRecords(salesData.map((item: any) => ({
           id: item.id,
           orderNo: item.order_no || item.orderNo || 'ORD',
-          date: item.date || item.created_at?.split('T')[0] || getTodayStr(),
+          date: (item.date || item.created_at || getTodayStr()).split('T')[0],
           createdAt: item.created_at || item.date,
           items: typeof item.items === 'string' ? JSON.parse(item.items) : (item.items || []),
           totalAmount: Number(item.total_amount || item.totalAmount || 0),
@@ -113,7 +113,7 @@ export default function ReportsPage() {
           );
           const costVal = Number(item.cost || item.outsource_cost || item.outsourceCost || 0);
           const repairNoVal = item.repair_no || item.repairNo || item.order_no || item.id?.slice(0, 8) || 'REP';
-          const dateVal = item.date || item.created_at?.split('T')[0] || item.updated_at?.split('T')[0] || getTodayStr();
+          const dateVal = (item.date || item.created_at || item.updated_at || getTodayStr()).split('T')[0];
           const deviceVal = item.device_model || item.deviceModel || item.model || item.name || '維修裝置';
           const faultVal = item.fault_desc || item.faultDesc || item.description || '維修服務';
           const paymentVal = item.payment_method || item.paymentMethod || item.pay_method || '現金';
@@ -144,7 +144,7 @@ export default function ReportsPage() {
           paymentMethod: item.payment_method || item.paymentMethod || '現金',
           amount: Number(item.amount || 0),
           remark: item.remark || '',
-          date: item.date || item.created_at?.split('T')[0] || getTodayStr(),
+          date: (item.date || item.created_at || getTodayStr()).split('T')[0],
           createdAt: item.created_at || item.date,
         })));
       }
@@ -157,7 +157,6 @@ export default function ReportsPage() {
     fetchData();
   }, []);
 
-  // 新增支出
   const handleAddExpense = async () => {
     if (!expenseAmount || expenseAmount <= 0) {
       alert('請輸入有效的支出金額');
@@ -182,7 +181,6 @@ export default function ReportsPage() {
     }
   };
 
-  // 新增收入
   const handleAddIncome = async () => {
     if (!incomeAmount || incomeAmount <= 0) {
       alert('請輸入有效的收入金額');
@@ -207,7 +205,7 @@ export default function ReportsPage() {
     }
   };
 
-  // 當日篩選資料
+  // 當日資料篩選
   const currentDaySales = salesRecords.filter(r => r.date === selectedDate);
   const currentDayRepairs = repairRecords.filter(r => r.date === selectedDate);
   const currentDayTrans = transactions.filter(t => t.date === selectedDate);
@@ -225,18 +223,17 @@ export default function ReportsPage() {
 
   const netIncome = totalIncome - totalExpense;
 
-  // 各支付方式統計 (現金、刷卡、刷卡/分期、無卡分期、LinePay、匯款)
+  // 各支付方式統計
   const getPayMethodStats = (methodName: string) => {
-    const salesAmt = currentDaySales.reduce((sum, s) => sum, 0); // 假設銷售預設
     const repairAmt = currentDayRepairs.filter(r => r.paymentMethod === methodName).reduce((sum, r) => sum + r.price, 0);
     const incAmt = currentDayTrans.filter(t => t.type === 'income' && t.paymentMethod === methodName).reduce((sum, t) => sum + t.amount, 0);
     const expAmt = currentDayTrans.filter(t => t.type === 'expense' && t.paymentMethod === methodName).reduce((sum, t) => sum + t.amount, 0);
     
     let total = repairAmt + incAmt - expAmt;
     if (methodName === '現金') {
-      total += currentDaySalesTotal; // 假設銷售預設現金
+      total += currentDaySalesTotal;
     }
-    const count = currentDayRepairs.filter(r => r.paymentMethod === methodName).length + currentDayTrans.filter(t => t.paymentMethod === methodName).length;
+    const count = currentDayRepairs.filter(r => r.paymentMethod === methodName).length + currentDayTrans.filter(t => t.paymentMethod === methodName).length + (methodName === '現金' ? currentDaySales.length : 0);
     return { total, count };
   };
 
@@ -260,7 +257,6 @@ export default function ReportsPage() {
 
   return (
     <div className="p-8 space-y-6 bg-slate-100 min-h-screen relative">
-      {/* 頂部日期與快捷按鈕 */}
       <div className="flex justify-between items-center bg-white rounded-3xl p-4 shadow-sm border border-slate-200/60">
         <div className="flex items-center gap-3">
           <input 
@@ -292,7 +288,6 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* 頂部淨收入卡片 */}
       <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 flex justify-between items-center">
         <div className="flex items-center gap-4">
           <div className="w-2 h-10 bg-emerald-500 rounded-full"></div>
@@ -315,7 +310,6 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* 收入明細與支出明細 */}
       <div className="grid grid-cols-2 gap-6">
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-4">
           <div className="flex justify-between items-center">
@@ -343,7 +337,6 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* 款項結算 (六大支付方式卡片) */}
       <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-4">
         <span className="text-sm font-bold text-slate-800 flex items-center gap-2">💳 款項結算</span>
         <div className="grid grid-cols-3 gap-4">
@@ -379,7 +372,6 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        {/* 零用金與本日結算 */}
         <div className="grid grid-cols-2 gap-4 pt-2">
           <div className="p-4 bg-amber-50/40 rounded-2xl border border-amber-100 flex justify-between items-center">
             <div>
@@ -396,7 +388,6 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* 下方盈餘報表區塊 */}
       <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-4">
         <div className="flex justify-between items-center">
           <span className="text-sm font-bold text-slate-800 flex items-center gap-2">📊 盈餘報表</span>
@@ -433,7 +424,6 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* 新增支出彈跳視窗 */}
       {showExpenseModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-3xl p-6 w-[450px] space-y-4 shadow-2xl">
@@ -474,7 +464,6 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {/* 新增雜收彈跳視窗 */}
       {showIncomeModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-3xl p-6 w-[450px] space-y-4 shadow-2xl">
@@ -515,7 +504,6 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {/* 銷售與維修收入明細彈跳視窗 */}
       {showSalesDetailModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-3xl p-6 w-[700px] max-h-[80vh] overflow-y-auto space-y-4 shadow-2xl">
