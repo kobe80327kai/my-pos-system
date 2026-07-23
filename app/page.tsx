@@ -68,30 +68,44 @@ export default function ControlPage() {
     return [];
   });
 
-  // 從 localStorage 讀取「客戶管理」的資料（若無則給預設值）
-  const [customers, setCustomers] = useState<Customer[]>(() => {
+  // 從 localStorage 讀取客戶與方案資料的函式
+  const loadCustomersFromStorage = (): Customer[] => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('pos_customers');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          console.error(e);
+        }
+      }
     }
     return [
       { id: 'c1', name: '林活揚', phone: '0956-096936' },
       { id: 'c2', name: '王小明', phone: '0912-345678' }
     ];
-  });
+  };
 
-  // 從 localStorage 讀取「方案管理」的資料（若無則給預設值）
-  const [plans, setPlans] = useState<PlanItem[]>(() => {
+  const loadPlansFromStorage = (): PlanItem[] => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('pos_plans');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          console.error(e);
+        }
+      }
     }
     return [
       { id: 'pl1', name: '中華電信 5G 1399 (30期)', telecom: '中華電信', monthlyFee: 1399, rebate: 5000 },
       { id: 'pl2', name: '台灣大哥大 4G 688 (24期)', telecom: '台灣大哥大', monthlyFee: 688, rebate: 3000 },
       { id: 'pl3', name: '遠傳電信 5G 999 (24期)', telecom: '遠傳電信', monthlyFee: 999, rebate: 4000 }
     ];
-  });
+  };
+
+  const [customers, setCustomers] = useState<Customer[]>(loadCustomersFromStorage);
+  const [plans, setPlans] = useState<PlanItem[]>(loadPlansFromStorage);
 
   const products: Product[] = [
     { id: 'p1', name: '滿版保貼', price: 200, cost: 50, stock: 10, category: '配件' },
@@ -103,46 +117,36 @@ export default function ControlPage() {
     localStorage.setItem('pos_sales_records', JSON.stringify(salesRecords));
   }, [salesRecords]);
 
-  // 監聽並自動同步其他頁面（客戶管理 / 方案管理）可能更新的資料
+  // 當切換回結帳頁籤時，強制重新載入最新資料
   useEffect(() => {
-    const handleStorageChange = () => {
-      const savedCust = localStorage.getItem('pos_customers');
-      if (savedCust) setCustomers(JSON.parse(savedCust));
-      const savedPlans = localStorage.getItem('pos_plans');
-      if (savedPlans) setPlans(JSON.parse(savedPlans));
-    };
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
+    if (activeTab === 'checkout') {
+      setCustomers(loadCustomersFromStorage());
+      setPlans(loadPlansFromStorage());
+    }
+  }, [activeTab]);
 
   // 銷貨結帳相關狀態
   const [cart, setCart] = useState<CartItem[]>([]);
   const [productSearch, setProductSearch] = useState('');
   
-  // 客戶搜尋與選擇狀態
   const [customerSearch, setCustomerSearch] = useState('');
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
 
-  // 方案搜尋狀態
   const [planSearch, setPlanSearch] = useState('');
 
-  // 多組付款方式狀態
   const [payments, setPayments] = useState<PaymentEntry[]>([
     { id: 'pay-1', method: '現金', installments: '3' }
   ]);
 
-  // Modal 控制
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
 
-  // 自訂項目表單
   const [customType, setCustomType] = useState<'自訂配件/商品' | '維修服務'>('自訂配件/商品');
   const [customName, setCustomName] = useState('');
   const [customPrice, setCustomPrice] = useState<number>(0);
   const [customCost, setCustomCost] = useState<number>(0);
 
-  // 快速建立會員表單
   const [newCustName, setNewCustName] = useState('');
   const [newCustPhone, setNewCustPhone] = useState('');
 
@@ -162,8 +166,8 @@ export default function ControlPage() {
       { 
         id: `plan-${plan.id}-${Date.now()}`, 
         name: `[方案] ${plan.name}`, 
-        price: 0, // 選取方案不代入月租，金額預設為0可手動修改
-        cost: -plan.rebate, // 佣金自動計入毛利
+        price: 0, 
+        cost: -plan.rebate, 
         quantity: 1, 
         type: 'plan' 
       }
@@ -199,9 +203,9 @@ export default function ControlPage() {
       return;
     }
     const newC: Customer = { id: `c-${Date.now()}`, name: newCustName, phone: newCustPhone };
-    const updatedCustomers = [...customers, newC];
-    setCustomers(updatedCustomers);
-    localStorage.setItem('pos_customers', JSON.stringify(updatedCustomers));
+    const updated = [...customers, newC];
+    setCustomers(updated);
+    localStorage.setItem('pos_customers', JSON.stringify(updated));
     setCustomerSearch(`${newC.name} (${newC.phone})`);
     setNewCustName('');
     setNewCustPhone('');
@@ -259,19 +263,18 @@ export default function ControlPage() {
     !productSearch || p.name.includes(productSearch) || p.id.includes(productSearch)
   );
 
-  // 對應客戶管理的資料進行搜尋
+  // 搜尋時同步最新客戶資料
   const filteredCustomers = customers.filter(c => 
     c.name.includes(customerSearch) || c.phone.includes(customerSearch)
   );
 
-  // 對應方案管理的資料進行搜尋
+  // 搜尋時同步最新方案資料
   const filteredPlans = plans.filter(pl =>
     !planSearch || pl.name.includes(planSearch) || pl.telecom.includes(planSearch)
   );
 
   return (
     <div className="p-8 space-y-6 w-full relative">
-      {/* 頂部快速切換列 */}
       <div className="flex justify-between items-center bg-white px-5 py-3 rounded-2xl shadow-sm border border-slate-200/60">
         <div className="flex items-center gap-2">
           <span className="text-xs text-slate-400 font-medium mr-2">快速切換：</span>
@@ -282,7 +285,6 @@ export default function ControlPage() {
         <div className="text-xs text-slate-600">目前身份：<span className="font-bold text-slate-800">管理員</span></div>
       </div>
 
-      {/* 1. 銷貨結帳畫面 */}
       {activeTab === 'checkout' && (
         <div className="space-y-4">
           <div>
@@ -291,14 +293,13 @@ export default function ControlPage() {
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             <div className="lg:col-span-8 space-y-4">
-              {/* 選擇方案區 */}
               <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/65 space-y-4">
                 <div className="flex justify-between items-center">
                   <span className="text-xs font-bold text-slate-700">選擇方案</span>
-                  <button onClick={() => setIsPlanModalOpen(true)} className="text-xs text-blue-600 font-bold hover:underline">+ 代入電信方案</button>
+                  <button onClick={() => { setPlans(loadPlansFromStorage()); setIsPlanModalOpen(true); }} className="text-xs text-blue-600 font-bold hover:underline">+ 代入電信方案</button>
                 </div>
                 <div 
-                  onClick={() => setIsPlanModalOpen(true)}
+                  onClick={() => { setPlans(loadPlansFromStorage()); setIsPlanModalOpen(true); }}
                   className="border border-dashed border-blue-200 bg-blue-50/30 rounded-2xl p-4 flex justify-between items-center cursor-pointer hover:bg-blue-50/60 transition"
                 >
                   <div className="flex items-center gap-2 text-xs font-medium text-slate-600">
@@ -309,7 +310,6 @@ export default function ControlPage() {
                 </div>
               </div>
 
-              {/* 加入商品區 */}
               <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-4">
                 <p className="text-xs font-bold text-slate-700">加入商品</p>
                 <input
@@ -336,14 +336,12 @@ export default function ControlPage() {
               </div>
             </div>
 
-            {/* 右側購物車與結帳 */}
             <div className="lg:col-span-4 bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-4">
               <div className="flex justify-between items-center border-b border-slate-100 pb-3">
                 <span className="text-xs font-bold text-slate-700">🛒 購物車明細 <span className="text-blue-600 font-mono">({cart.length})</span></span>
                 <button onClick={() => setCart([])} className="text-[10px] text-slate-400 hover:text-rose-600">清空</button>
               </div>
 
-              {/* 客戶搜尋與選擇 (與客戶管理資料完全連動) */}
               <div className="space-y-1 relative">
                 <div className="flex justify-between items-center text-[10px] text-slate-400">
                   <span>客戶 (選填，個人貴賓可不選)</span>
@@ -353,10 +351,14 @@ export default function ControlPage() {
                   type="text"
                   value={customerSearch}
                   onChange={(e) => {
+                    setCustomers(loadCustomersFromStorage());
                     setCustomerSearch(e.target.value);
                     setIsCustomerDropdownOpen(true);
                   }}
-                  onFocus={() => setIsCustomerDropdownOpen(true)}
+                  onFocus={() => {
+                    setCustomers(loadCustomersFromStorage());
+                    setIsCustomerDropdownOpen(true);
+                  }}
                   placeholder="搜尋客戶姓名 / 電話..."
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium"
                 />
@@ -385,7 +387,6 @@ export default function ControlPage() {
                 )}
               </div>
 
-              {/* 購物車品項清單 */}
               <div className="min-h-[120px] max-h-[200px] overflow-y-auto space-y-2 border-b border-slate-100 pb-4">
                 {cart.length === 0 ? (
                   <p className="text-xs text-slate-400 text-center py-10">尚未加入品項或方案</p>
@@ -417,7 +418,6 @@ export default function ControlPage() {
                 )}
               </div>
 
-              {/* 自訂項目按鈕 */}
               <button 
                 onClick={() => setIsCustomModalOpen(true)}
                 className="w-full py-2.5 bg-slate-50 hover:bg-slate-100 border border-dashed border-slate-300 rounded-xl text-xs font-bold text-slate-600 transition flex items-center justify-center gap-1.5"
@@ -425,7 +425,6 @@ export default function ControlPage() {
                 + 自訂項目 / 🛠️ 維修服務
               </button>
 
-              {/* 多組付款方式與期數區塊 */}
               <div className="space-y-3 pt-2">
                 <div className="flex justify-between items-center">
                   <span className="text-slate-400 text-[10px]">付款方式與期數</span>
@@ -494,7 +493,6 @@ export default function ControlPage() {
                 </div>
               </div>
 
-              {/* 總結與結帳按鈕 */}
               <div className="border-t pt-4 space-y-3">
                 <div className="flex justify-between text-xs font-mono">
                   <span className="text-slate-400">預估總毛利：</span>
@@ -513,7 +511,6 @@ export default function ControlPage() {
         </div>
       )}
 
-      {/* 2. 銷售紀錄畫面 */}
       {activeTab === 'records' && (
         <div className="space-y-4">
           <h1 className="text-xl font-bold text-slate-800">銷售紀錄</h1>
@@ -549,7 +546,6 @@ export default function ControlPage() {
         </div>
       )}
 
-      {/* 3. 業績報表畫面 */}
       {activeTab === 'reports' && (
         <div className="space-y-4">
           <h1 className="text-xl font-bold text-slate-800">業績報表</h1>
@@ -560,7 +556,6 @@ export default function ControlPage() {
         </div>
       )}
 
-      {/* 彈跳視窗：選擇電信方案 (搜尋時直接對應方案管理的資料) */}
       {isPlanModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-6 w-full max-w-lg space-y-4 shadow-xl">
@@ -596,7 +591,6 @@ export default function ControlPage() {
         </div>
       )}
 
-      {/* 彈跳視窗：新增自訂項目 / 維修服務 */}
       {isCustomModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-6 w-full max-w-md space-y-4 shadow-xl">
@@ -630,7 +624,6 @@ export default function ControlPage() {
         </div>
       )}
 
-      {/* 彈跳視窗：快速建立會員 */}
       {isCustomerModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-6 w-full max-w-sm space-y-4 shadow-xl">
