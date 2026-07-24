@@ -9,6 +9,8 @@ interface Product {
   cost: number;
   stock: number;
   category: string;
+  imei?: string;
+  serialNo?: string;
 }
 
 interface CartItem {
@@ -84,11 +86,11 @@ export default function ControlPage() {
     if (typeof window === 'undefined') return [];
     
     const possibleKeys = [
+      'new_products',
       'inventory_products',
       'products',
       'pos_products',
       'stock_products',
-      'new_products',
       'shop_inventory',
       'items',
       'warehouse_products'
@@ -131,7 +133,8 @@ export default function ControlPage() {
     if (rawList.length === 0) {
       return [
         { id: 'PRD000015', name: '保貼', price: 150, cost: 30, stock: 1, category: '配件' },
-        { id: 'PRD000016', name: '行動電源', price: 500, cost: 200, stock: 1, category: '配件' }
+        { id: 'PRD000016', name: '行動電源', price: 500, cost: 200, stock: 1, category: '配件' },
+        { id: 'PRD000017', name: '空壓殼', price: 150, cost: 30, stock: 1, category: '配件' }
       ];
     }
 
@@ -139,9 +142,11 @@ export default function ControlPage() {
       id: p.id || p.productNo || p.code || String(Math.random()),
       name: p.name || p.productName || '未命名商品',
       price: Number(p.price || p.sellPrice || p.retailPrice || p.unitPrice || 100),
-      cost: Number(p.cost || p.actualCost || p.purchaseCost || 30),
-      stock: Number(p.stock ?? p.quantity ?? p.qty ?? p.count ?? 0),
-      category: p.category || '一般'
+      cost: Number(p.cost || p.actualCost || p.purchaseCost || p.priceCost || 30),
+      stock: Number(p.stock ?? p.quantity ?? p.qty ?? p.count ?? 1),
+      category: p.category || '一般',
+      imei: p.imei || p.IMEI || '',
+      serialNo: p.serialNo || p.serial || p.sn || ''
     }));
   };
 
@@ -201,7 +206,7 @@ export default function ControlPage() {
     const interval = setInterval(() => {
       const latest = loadInventoryProducts();
       setProducts(latest);
-    }, 500);
+    }, 400);
     return () => clearInterval(interval);
   }, []);
 
@@ -378,10 +383,32 @@ export default function ControlPage() {
 
     setProducts(updatedProducts);
     if (typeof window !== 'undefined') {
+      const storageKeys = ['new_products', 'inventory_products', 'products', 'pos_products', 'stock_products', 'warehouse_products'];
+      storageKeys.forEach(k => {
+        const data = localStorage.getItem(k);
+        if (data) {
+          try {
+            const parsed = JSON.parse(data);
+            if (Array.isArray(parsed)) {
+              const synced = parsed.map((item: any) => {
+                const matchId = item.id || item.productNo || item.code;
+                const foundCart = cart.find(c => c.id === matchId && c.type === 'product');
+                if (foundCart) {
+                  const currentStock = Number(item.stock ?? item.quantity ?? item.qty ?? item.count ?? 1);
+                  const newStock = Math.max(0, currentStock - foundCart.quantity);
+                  if (item.stock !== undefined) item.stock = newStock;
+                  if (item.quantity !== undefined) item.quantity = newStock;
+                  if (item.qty !== undefined) item.qty = newStock;
+                }
+                return item;
+              });
+              localStorage.setItem(k, JSON.stringify(synced));
+            }
+          } catch (e) { console.error(e); }
+        }
+      });
       localStorage.setItem('inventory_products', JSON.stringify(updatedProducts));
-      localStorage.setItem('products', JSON.stringify(updatedProducts));
-      localStorage.setItem('pos_products', JSON.stringify(updatedProducts));
-      localStorage.setItem('stock_products', JSON.stringify(updatedProducts));
+      localStorage.setItem('new_products', JSON.stringify(updatedProducts));
     }
 
     const orderNo = `SD${getTodayStr().replace(/-/g, '').slice(2)}${Math.floor(100 + Math.random() * 900)}`;
@@ -454,9 +481,15 @@ export default function ControlPage() {
     );
   };
 
-  const filteredProducts = products.filter(p => 
-    !productSearch || p.name.toLowerCase().includes(productSearch.toLowerCase()) || p.id.toLowerCase().includes(productSearch.toLowerCase())
-  );
+  const filteredProducts = products.filter(p => {
+    if (!productSearch) return true;
+    const kw = productSearch.trim().toLowerCase();
+    const matchName = p.name.toLowerCase().includes(kw);
+    const matchId = p.id.toLowerCase().includes(kw);
+    const matchImei = p.imei ? p.imei.toLowerCase().includes(kw) : false;
+    const matchSerial = p.serialNo ? p.serialNo.toLowerCase().includes(kw) : false;
+    return matchName || matchId || matchImei || matchSerial;
+  });
 
   const filteredCustomers = customers.filter(c => {
     if (!customerSearch) return true;
@@ -510,17 +543,17 @@ export default function ControlPage() {
               </div>
 
               <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-4">
-                <p className="text-xs font-bold text-slate-700">加入商品</p>
+                <p className="text-xs font-bold text-slate-700">加入商品 (支援品名、編號、IMEI、序號搜尋)</p>
                 <input
                   type="text"
                   value={productSearch}
                   onChange={(e) => setProductSearch(e.target.value)}
-                  placeholder="搜尋商品名稱 / 商品編號 / IMEI..."
+                  placeholder="搜尋商品名稱 / 商品編號 / IMEI / 序號..."
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs"
                 />
                 <div className="space-y-2 max-h-[300px] overflow-y-auto">
                   {filteredProducts.length === 0 ? (
-                    <p className="text-xs text-slate-400 text-center py-6">目前無商品庫存，請至庫存管理新增商品。</p>
+                    <p className="text-xs text-slate-400 text-center py-6">目前無相符商品庫存，請至進貨或新品庫存管理新增。</p>
                   ) : (
                     filteredProducts.map((p) => (
                       <div 
@@ -530,10 +563,12 @@ export default function ControlPage() {
                       >
                         <div>
                           <div className="flex items-center gap-2">
-                            <p className="text-xs font-bold text-slate-800">{p.name}</p>
+                            <p className="text-xs font-bold text-slate-800">{p.name} <span className="text-[10px] text-slate-400 font-mono">({p.id})</span></p>
                             {p.stock <= 0 && <span className="px-2 py-0.5 bg-rose-100 text-rose-600 rounded-md text-[10px] font-bold">庫存不足 (0)</span>}
                           </div>
-                          <p className="text-[10px] text-slate-400">庫存: {p.stock} | 成本: ${p.cost}</p>
+                          <p className="text-[10px] text-slate-400">
+                            庫存: {p.stock} | 成本: ${p.cost} {p.imei ? `| IMEI: ${p.imei}` : ''} {p.serialNo ? `| 序號: ${p.serialNo}` : ''}
+                          </p>
                         </div>
                         <div className="flex items-center gap-3">
                           <span className="text-xs text-blue-600 font-mono font-bold">${p.price}</span>
@@ -956,7 +991,7 @@ export default function ControlPage() {
                 />
               </div>
               <div>
-                <label className="text-slate-400 block np-1">成本 ($)</label>
+                <label className="text-slate-400 block mb-1">成本 ($)</label>
                 <input
                   type="number"
                   value={customCost}
