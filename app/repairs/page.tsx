@@ -75,8 +75,26 @@ export default function RepairManagementPage() {
 
   const [activeTab, setActiveTab] = useState<'repairs' | 'parts' | 'purchases' | 'vendors'>('repairs');
 
-  // 客戶資料同步
-  const [customers, setCustomers] = useState<Customer[]>(() => {
+  // 客戶資料（預設為空陣列，直接從 Supabase 或全域讀取真實客戶）
+  const [customers, setCustomers] = useState<Customer[]>([]);
+
+  useEffect(() => {
+    fetchCustomers();
+  }, []);
+
+  const fetchCustomers = async () => {
+    try {
+      const { data, error } = await supabase.from('customers').select('*').order('created_at', { ascending: false });
+      if (data && !error && data.length > 0) {
+        setCustomers(data.map((item: any) => ({
+          id: String(item.id),
+          name: item.name || '',
+          phone: item.phone || item.mobile || ''
+        })));
+      }
+    } catch (err) {}
+
+    // 同步檢查 localStorage 備份
     if (typeof window !== 'undefined') {
       try {
         const keys = ['pos_customers_v3', 'pos_customers', 'customers', 'crm_customers'];
@@ -84,18 +102,15 @@ export default function RepairManagementPage() {
           const saved = localStorage.getItem(key);
           if (saved) {
             const parsed = JSON.parse(saved);
-            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setCustomers(parsed);
+              break;
+            }
           }
         }
-      } catch (e) { console.error(e); }
+      } catch (e) {}
     }
-    return [
-      { id: 'CST00001', name: 'JOY秀菁', phone: '0956-096936' },
-      { id: 'CST00002', name: '陳清政', phone: '0980-201060' },
-      { id: 'CST00003', name: '阿婷友', phone: '0924017866' },
-      { id: 'CST00004', name: '陸萱', phone: '0982049589' }
-    ];
-  });
+  };
 
   // 維修單列表
   const [repairs, setRepairs] = useState<RepairRecord[]>(() => {
@@ -105,26 +120,7 @@ export default function RepairManagementPage() {
         if (saved) return JSON.parse(saved);
       } catch (e) { console.error(e); }
     }
-    return [
-      {
-        id: 'r1',
-        orderNo: 'RO260720001',
-        customerName: 'JOY秀菁',
-        customerPhone: '0956-096936',
-        brand: 'Apple',
-        model: '15',
-        color: '00',
-        imei: '000',
-        problem: '00',
-        price: 0,
-        repairFee: 1200,
-        deposit: 0,
-        checkFee: 0,
-        status: '已收件',
-        date: '2026-07-20',
-        isOutsourced: false
-      }
-    ];
+    return [];
   });
 
   // 零件庫存列表
@@ -150,11 +146,7 @@ export default function RepairManagementPage() {
         if (saved) return JSON.parse(saved);
       } catch (e) { console.error(e); }
     }
-    return [
-      { id: 'pu1', orderNo: 'RP260715002', date: '2026-07-15', vendor: 'THEONE', remark: '—', itemCount: 1 },
-      { id: 'pu2', orderNo: 'RP260715001', date: '2026-07-15', vendor: 'THEONE', remark: '—', itemCount: 1 },
-      { id: 'pu3', orderNo: 'RP260714001', date: '2026-07-14', vendor: '—', remark: '—', itemCount: 1 }
-    ];
+    return [];
   });
 
   // 維修廠商列表
@@ -169,28 +161,6 @@ export default function RepairManagementPage() {
       { id: 'v1', vendorNo: 'THEONE', name: 'THEONE', contact: '—', phone: '—', tel: '—', address: '—', remark: '—' }
     ];
   });
-
-  // 自動同步外部客戶資料
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (typeof window !== 'undefined') {
-        const keys = ['pos_customers_v3', 'pos_customers', 'customers', 'crm_customers'];
-        for (const key of keys) {
-          const saved = localStorage.getItem(key);
-          if (saved) {
-            try {
-              const parsed = JSON.parse(saved);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                setCustomers(parsed);
-                break;
-              }
-            } catch (e) { console.error(e); }
-          }
-        }
-      }
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -283,13 +253,18 @@ export default function RepairManagementPage() {
   const [newCustName, setNewCustName] = useState('');
   const [newCustPhone, setNewCustPhone] = useState('');
 
-  const handleCreateCustomer = () => {
+  const handleCreateCustomer = async () => {
     if (!newCustName || !newCustPhone) {
       alert('請填寫客戶姓名與電話');
       return;
     }
     const newId = `CST${String(customers.length + 1).padStart(5, '0')}`;
     const newC: Customer = { id: newId, name: newCustName, phone: newCustPhone };
+    
+    try {
+      await supabase.from('customers').insert([{ name: newC.name, phone: newC.phone }]);
+    } catch (e) {}
+
     const updated = [newC, ...customers];
     setCustomers(updated);
     if (typeof window !== 'undefined') {
@@ -508,7 +483,6 @@ export default function RepairManagementPage() {
     }
     const profit = Math.round(rev - totalPartsCost);
 
-    // 準備寫入 Supabase sales_records 讓業績報表與銷售總覽同步顯示
     const nowStr = getTodayStr();
     const salePayload = {
       id: `sr-repair-${Date.now()}`,
@@ -591,7 +565,7 @@ export default function RepairManagementPage() {
         <h1 className="text-xl font-bold text-slate-800">維修管理</h1>
         {activeTab === 'repairs' && (
           <button
-            onClick={() => setIsModalOpen(true)}
+            onClick={() => { fetchCustomers(); setIsModalOpen(true); }}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center gap-1.5"
           >
             + 新增維修單
@@ -924,7 +898,7 @@ export default function RepairManagementPage() {
                       setCustInput(e.target.value);
                       setIsCustDropdownOpen(true);
                     }}
-                    onFocus={() => setIsCustDropdownOpen(true)}
+                    onFocus={() => { fetchCustomers(); setIsCustDropdownOpen(true); }}
                     placeholder="搜尋客戶姓名或電話..."
                     className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
                   />
@@ -937,21 +911,25 @@ export default function RepairManagementPage() {
                 </div>
                 {isCustDropdownOpen && (
                   <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-20 max-h-40 overflow-y-auto">
-                    {customers
-                      .filter(c => c.name.toLowerCase().includes(custInput.toLowerCase()) || c.phone.includes(custInput))
-                      .map(c => (
-                        <div
-                          key={c.id}
-                          onClick={() => {
-                            setCustInput(`${c.name} (${c.phone})`);
-                            setIsCustDropdownOpen(false);
-                          }}
-                          className="px-3 py-2 hover:bg-slate-50 cursor-pointer flex justify-between"
-                        >
-                          <span className="font-bold text-slate-800">{c.name}</span>
-                          <span className="text-slate-400 font-mono">{c.phone}</span>
-                        </div>
-                      ))}
+                    {customers.length === 0 ? (
+                      <div className="p-3 text-center text-xs text-slate-400">尚無客戶資料，請點擊右側新增</div>
+                    ) : (
+                      customers
+                        .filter(c => c.name.toLowerCase().includes(custInput.toLowerCase()) || c.phone.includes(custInput))
+                        .map(c => (
+                          <div
+                            key={c.id}
+                            onClick={() => {
+                              setCustInput(`${c.name} (${c.phone})`);
+                              setIsCustDropdownOpen(false);
+                            }}
+                            className="px-3 py-2 hover:bg-slate-50 cursor-pointer flex justify-between"
+                          >
+                            <span className="font-bold text-slate-800">{c.name}</span>
+                            <span className="text-slate-400 font-mono">{c.phone}</span>
+                          </div>
+                        ))
+                    )}
                   </div>
                 )}
               </div>
