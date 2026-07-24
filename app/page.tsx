@@ -182,41 +182,133 @@ export default function POSSystem() {
     alert('結帳成功！');
   };
 
+  const toggleExpandRecord = (id: string) => {
+    setExpandedRecordIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+  };
+
+  const handleDateFilterPreset = (mode: string) => {
+    setDateFilterMode(mode);
+    const today = new Date();
+    const formatDate = (d: Date) => d.toISOString().slice(0, 10);
+    if (mode === 'today') {
+      setDateStart(formatDate(today));
+      setDateEnd(formatDate(today));
+    } else if (mode === 'week') {
+      const firstDay = new Date(today.setDate(today.getDate() - today.getDay()));
+      setDateStart(formatDate(firstDay));
+      setDateEnd(formatDate(new Date()));
+    } else if (mode === 'month') {
+      const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+      setDateStart(formatDate(firstDay));
+      setDateEnd(formatDate(new Date()));
+    } else {
+      setDateStart('');
+      setDateEnd('');
+    }
+  };
+
   const filteredProducts = products.filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase()));
   const filteredPlans = plans.filter(pl => pl.name.toLowerCase().includes(planSearch.toLowerCase()) || pl.telecom.includes(planSearch));
 
+  const filteredRecords = salesRecords.filter(r => {
+    const matchSearch = r.orderNo.toLowerCase().includes(recordSearch.toLowerCase()) ||
+                          r.customerName.toLowerCase().includes(recordSearch.toLowerCase()) ||
+                          r.salesperson.toLowerCase().includes(recordSearch.toLowerCase()) ||
+                          r.items.some(it => it.name.toLowerCase().includes(recordSearch.toLowerCase()));
+    const matchSalesperson = filterSalesperson === '全部門市人員' || r.salesperson === filterSalesperson;
+    return matchSearch && matchSalesperson;
+  });
+
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">
-      {/* 頂部切換頁籤（因為佈局已在 layout.tsx 帶有側邊欄，此處僅保留內容與切換邏輯） */}
-      <div className="flex-1 bg-slate-50 text-slate-800 overflow-y-auto p-6">
-        
-        {/* 快速切換頂部列（方便在單頁直接切換各模組測試） */}
-        <div className="mb-6 flex items-center gap-2 bg-white p-3 rounded-2xl shadow-sm border border-slate-200/60">
-          <span className="text-xs font-bold text-slate-500 px-2">快速切換頁面：</span>
-          {[
-            { id: 'pos', name: '銷貨結帳(控制台)' },
-            { id: 'inventory', name: '新品庫存管理' },
-            { id: 'plans', name: '方案管理' },
-          ].map(tab => (
+      {/* 左側 9 大功能側邊欄 */}
+      <div className="w-64 bg-slate-950 flex flex-col justify-between border-r border-slate-800/60 shrink-0">
+        <div className="p-5 space-y-6">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center font-bold text-white shadow-md shadow-blue-600/30">
+              P
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-white tracking-wide">POS 門市系統</h2>
+              <p className="text-[10px] text-slate-400 font-mono mt-0.5">v1.0.0</p>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <p className="text-[10px] text-slate-500 font-bold uppercase px-3 pb-1">主要功能</p>
+            {[
+              { id: 'pos', name: '控制台' },
+              { id: 'purchasing', name: '進貨管理' },
+              { id: 'inventory', name: '新品庫存管理' },
+              { id: 'used', name: '中古機總覽' },
+              { id: 'repair', name: '維修管理' },
+              { id: 'customers', name: '客戶管理' },
+              { id: 'vendors', name: '廠商管理' },
+              { id: 'plans', name: '方案管理' },
+              { id: 'records', name: '銷售紀錄' },
+              { id: 'reports', name: '營運報表' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition ${
+                  activeTab === tab.id
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                    : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+                }`}
+              >
+                <span>{tab.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="p-4 bg-slate-900/40 border-t border-slate-800/60 m-3 rounded-2xl flex items-center gap-3">
+          <div className="w-8 h-8 rounded-xl bg-slate-800 flex items-center justify-center font-bold text-xs text-blue-400">
+            N
+          </div>
+          <div className="overflow-hidden">
+            <p className="text-xs font-bold text-slate-200 truncate">管理員</p>
+            <p className="text-[10px] text-slate-400 truncate">admin@pos.com</p>
+          </div>
+        </div>
+      </div>
+
+      {/* 右側主要內容區 */}
+      <div className="flex-1 bg-slate-50 text-slate-800 overflow-y-auto p-6 space-y-4">
+        {/* 頂部快速切換橫條 */}
+        <div className="flex justify-between items-center bg-white px-5 py-3 rounded-2xl shadow-sm border border-slate-200/60">
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-slate-400 font-medium">快速切換：</span>
             <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                activeTab === tab.id ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
+              onClick={() => setActiveTab('pos')}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition ${activeTab === 'pos' ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
             >
-              {tab.name}
+              🛒 銷貨結帳
             </button>
-          ))}
+            <button
+              onClick={() => setActiveTab('records')}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition ${activeTab === 'records' ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+            >
+              📄 銷售紀錄
+            </button>
+            <button
+              onClick={() => setActiveTab('reports')}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition ${activeTab === 'reports' ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+            >
+              📊 業績報表
+            </button>
+          </div>
+          <div className="text-xs text-slate-500 font-medium">
+            目前身份：<span className="font-bold text-slate-800">管理員</span>
+          </div>
         </div>
 
         {activeTab === 'pos' && (
           <div className="space-y-6">
-            <div className="flex justify-between items-center">
-              <div>
-                <h1 className="text-xl font-bold text-slate-800">銷貨結帳</h1>
-                <p className="text-xs text-slate-400 mt-0.5">選取方案不代入月租，金額可自由手動修改，佣金自動計入毛利。</p>
-              </div>
+            <div>
+              <h1 className="text-xl font-bold text-slate-800">銷貨結帳</h1>
+              <p className="text-xs text-slate-400 mt-0.5">選取方案不代入月租，金額可自由手動修改，佣金自動計入毛利。</p>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -238,7 +330,7 @@ export default function POSSystem() {
                     className="p-4 bg-slate-50 hover:bg-blue-50/50 border border-slate-200/80 rounded-2xl cursor-pointer transition flex justify-between items-center"
                   >
                     <div className="flex items-center gap-3 text-xs text-slate-500">
-                      <span>💡 點擊開啟方案選擇視窗</span>
+                      <span>💡 點擊開啟方案選擇視窗（直接讀取方案管理資料）</span>
                     </div>
                     <span className="text-xs font-bold bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-sm text-blue-600">
                       選擇方案
@@ -249,7 +341,7 @@ export default function POSSystem() {
                 {/* 加入商品區 */}
                 <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/60 space-y-3">
                   <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold text-slate-700">加入商品 (直接讀取「新品庫存管理」與新增商品)</span>
+                    <span className="text-xs font-bold text-slate-700">加入商品 (即時讀取「新品庫存管理」與新增商品)</span>
                   </div>
                   <input
                     type="text"
@@ -320,7 +412,7 @@ export default function POSSystem() {
                       </div>
                     ) : (
                       <div className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-2.5 text-xs text-slate-400">
-                        搜尋客戶姓名 / 電話...
+                        尚未選取客戶
                       </div>
                     )}
                   </div>
@@ -578,6 +670,155 @@ export default function POSSystem() {
           </div>
         )}
 
+        {/* 銷售紀錄與其他頁面 */}
+        {activeTab === 'records' && (
+          <div className="space-y-4">
+            <div>
+              <h1 className="text-xl font-bold text-slate-800">銷售紀錄</h1>
+              <p className="text-xs text-slate-400 mt-0.5">查詢歷史銷貨明細、依日期與門市人員篩選。</p>
+            </div>
+
+            <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <input
+                  type="text"
+                  value={recordSearch}
+                  onChange={(e) => setRecordSearch(e.target.value)}
+                  placeholder="搜尋單號、客戶、人員、品名..."
+                  className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs"
+                />
+                <select
+                  value={filterSalesperson}
+                  onChange={(e) => setFilterSalesperson(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs"
+                >
+                  <option value="全部門市人員">全部門市人員</option>
+                  <option value="管理員">管理員</option>
+                </select>
+                <div className="flex gap-1.5 md:col-span-2">
+                  <input
+                    type="date"
+                    value={dateStart}
+                    onChange={(e) => { setDateStart(e.target.value); setDateFilterMode('custom'); }}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-xs"
+                  />
+                  <input
+                    type="date"
+                    value={dateEnd}
+                    onChange={(e) => { setDateEnd(e.target.value); setDateFilterMode('custom'); }}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <span className="text-[10px] text-slate-400">快速篩選：</span>
+                <button onClick={() => handleDateFilterPreset('today')} className={`px-3 py-1 rounded-lg text-xs font-bold transition ${dateFilterMode === 'today' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>今天</button>
+                <button onClick={() => handleDateFilterPreset('week')} className={`px-3 py-1 rounded-lg text-xs font-bold transition ${dateFilterMode === 'week' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>本週</button>
+                <button onClick={() => handleDateFilterPreset('month')} className={`px-3 py-1 rounded-lg text-xs font-bold transition ${dateFilterMode === 'month' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>本月</button>
+                <button onClick={() => handleDateFilterPreset('all')} className={`px-3 py-1 rounded-lg text-xs font-bold transition ${dateFilterMode === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>全部</button>
+              </div>
+
+              <div className="overflow-x-auto pt-2">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-slate-400 font-medium">
+                      <th className="pb-3 px-3">單號 / 日期</th>
+                      <th className="pb-3 px-3">客戶</th>
+                      <th className="pb-3 px-3">銷售人員</th>
+                      <th className="pb-3 px-3">付款資訊</th>
+                      <th className="pb-3 px-3 text-right">總金額</th>
+                      <th className="pb-3 px-3 text-right">毛利</th>
+                      <th className="pb-3 px-3 text-center">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {filteredRecords.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="text-center py-8 text-slate-400">目前沒有符合條件的銷售紀錄</td>
+                      </tr>
+                    ) : (
+                      filteredRecords.map((r) => {
+                        const isExpanded = expandedRecordIds.includes(r.id);
+                        return (
+                          <React.Fragment key={r.id}>
+                            <tr className="hover:bg-slate-50/80 transition">
+                              <td className="py-3 px-3">
+                                <p className="font-bold text-slate-800 font-mono">{r.orderNo}</p>
+                                <p className="text-[10px] text-slate-400">{r.date}</p>
+                              </td>
+                              <td className="py-3 px-3 font-medium text-slate-700">{r.customerName}</td>
+                              <td className="py-3 px-3 text-slate-600">{r.salesperson}</td>
+                              <td className="py-3 px-3 text-slate-600">{r.paymentInfo}</td>
+                              <td className="py-3 px-3 text-right font-mono font-bold text-slate-800">${r.totalAmount}</td>
+                              <td className="py-3 px-3 text-right font-mono font-bold text-emerald-600">+${r.profit}</td>
+                              <td className="py-3 px-3 text-center">
+                                <button
+                                  onClick={() => toggleExpandRecord(r.id)}
+                                  className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-bold text-slate-600 transition"
+                                >
+                                  {isExpanded ? '收起明細' : '展開明細'}
+                                </button>
+                              </td>
+                            </tr>
+                            {isExpanded && (
+                              <tr>
+                                <td colSpan={7} className="bg-slate-50/60 p-4">
+                                  <div className="bg-white rounded-2xl p-4 border border-slate-200/60 space-y-2">
+                                    <p className="text-xs font-bold text-slate-700">購買品項明細：</p>
+                                    <div className="space-y-1.5">
+                                      {r.items.map((it, idx) => (
+                                        <div key={idx} className="flex justify-between items-center text-xs border-b border-slate-50 pb-1.5">
+                                          <span className="font-medium text-slate-800">{it.name} × {it.quantity}</span>
+                                          <span className="font-mono text-slate-600">單價: ${it.price} | 成本: ${it.cost}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'reports' && (
+          <div className="space-y-4">
+            <div>
+              <h1 className="text-xl font-bold text-slate-800">業績報表</h1>
+              <p className="text-xs text-slate-400 mt-0.5">即時統計門市總營收、毛利與銷售筆數。</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-2">
+                <p className="text-xs text-slate-400 font-medium">總營業額</p>
+                <p className="text-2xl font-black font-mono text-slate-800">
+                  ${salesRecords.reduce((sum, r) => sum + r.totalAmount, 0)}
+                </p>
+              </div>
+              <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-2">
+                <p className="text-xs text-slate-400 font-medium">總毛利</p>
+                <p className="text-2xl font-black font-mono text-emerald-600">
+                  +${salesRecords.reduce((sum, r) => sum + r.profit, 0)}
+                </p>
+              </div>
+              <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-2">
+                <p className="text-xs text-slate-400 font-medium">總銷售筆數</p>
+                <p className="text-2xl font-black font-mono text-blue-600">
+                  {salesRecords.length} 筆
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* 方案選擇彈窗 */}
         {isPlanModalOpen && (
           <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -714,7 +955,6 @@ export default function POSSystem() {
             </div>
           </div>
         )}
-
       </div>
     </div>
   );
