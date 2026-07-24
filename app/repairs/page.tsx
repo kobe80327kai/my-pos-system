@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabase';
 
 interface RepairRecord {
   id: string;
@@ -426,7 +427,6 @@ export default function RepairManagementPage() {
     }
   };
 
-  // 廠商相關處理函式
   const handleCreateVendor = () => {
     if (!vendorNameInput.trim()) {
       alert('請填寫廠商名稱');
@@ -498,15 +498,55 @@ export default function RepairManagementPage() {
     setIsEditVendorModalOpen(true);
   };
 
-  // 結帳確認計算毛利
-  const handleConfirmCheckout = () => {
+  // 結帳確認計算毛利並同步寫入 Supabase sales_records
+  const handleConfirmCheckout = async () => {
     if (!selectedRepair) return;
     const totalPartsCost = checkoutSelectedParts.reduce((sum, p) => sum + (p.cost || 0), 0);
     let rev = Number(checkoutRepairFee) || 0;
     if (checkoutPaymentMethod === '刷卡') {
       rev = rev * 0.98; // 扣除2%手續費
     }
-    const profit = rev - totalPartsCost;
+    const profit = Math.round(rev - totalPartsCost);
+
+    // 準備寫入 Supabase sales_records 讓業績報表與銷售總覽同步顯示
+    const nowStr = getTodayStr();
+    const salePayload = {
+      id: `sr-repair-${Date.now()}`,
+      order_no: selectedRepair.orderNo,
+      date: nowStr,
+      customer_name: selectedRepair.customerName || '個人貴賓',
+      customer_type: '個人貴賓',
+      salesperson: '管理員',
+      store: '總店',
+      items: [
+        {
+          name: `維修服務費 (${selectedRepair.model || '手機'})`,
+          imei: selectedRepair.imei || '—',
+          cost: 0,
+          price: Number(checkoutRepairFee) || 0,
+          quantity: 1,
+          category: '維修'
+        },
+        ...checkoutSelectedParts.map(p => ({
+          name: `[料件] ${p.name}`,
+          imei: '—',
+          cost: p.cost || 0,
+          price: 0,
+          quantity: 1,
+          category: '維修'
+        }))
+      ],
+      total_amount: Number(checkoutRepairFee) || 0,
+      total_cost: totalPartsCost,
+      profit: profit,
+      payment_info: checkoutPaymentMethod
+    };
+
+    try {
+      await supabase.from('sales_records').insert([salePayload]);
+    } catch (err: any) {
+      console.error('同步寫入 sales_records 失敗:', err.message);
+    }
 
     const updated = repairs.map(r => {
       if (r.id === selectedRepair.id) {
@@ -524,7 +564,7 @@ export default function RepairManagementPage() {
     });
 
     setRepairs(updated);
-    alert('已成功完成結帳！');
+    alert('已成功完成結帳，並同步更新至業績報表與銷售總覽！');
     setIsCheckoutModalOpen(false);
     setSelectedRepair(null);
   };
@@ -584,7 +624,7 @@ export default function RepairManagementPage() {
         )}
       </div>
 
-      {/* 子頁籤導覽列 (已移除維修零件建檔) */}
+      {/* 子頁籤導覽列 */}
       <div className="flex gap-6 border-b border-slate-200 text-xs font-bold text-slate-500 pb-3">
         <button onClick={() => setActiveTab('repairs')} className={`pb-1 transition ${activeTab === 'repairs' ? 'text-blue-600 border-b-2 border-blue-600' : 'hover:text-slate-700'}`}>維修單</button>
         <button onClick={() => setActiveTab('parts')} className={`pb-1 transition ${activeTab === 'parts' ? 'text-blue-600 border-b-2 border-blue-600' : 'hover:text-slate-700'}`}>零件庫存</button>
@@ -1216,7 +1256,7 @@ export default function RepairManagementPage() {
         </div>
       )}
 
-      {/* 結帳 / 開銷貨單 Modal (支援帶入維修零件、扣成本、算毛利、僅現金/刷卡/匯款) */}
+      {/* 結帳 / 開銷貨單 Modal */}
       {isCheckoutModalOpen && selectedRepair && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-6 max-w-2xl w-full shadow-xl space-y-4 animate-in fade-in zoom-in duration-150 max-h-[95vh] overflow-y-auto">
