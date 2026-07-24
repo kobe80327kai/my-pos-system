@@ -182,100 +182,34 @@ export default function POSSystem() {
     alert('結帳成功！');
   };
 
-  const toggleExpandRecord = (id: string) => {
-    setExpandedRecordIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
-  };
-
-  const handleDateFilterPreset = (mode: string) => {
-    setDateFilterMode(mode);
-    const today = new Date();
-    const formatDate = (d: Date) => d.toISOString().slice(0, 10);
-    if (mode === 'today') {
-      setDateStart(formatDate(today));
-      setDateEnd(formatDate(today));
-    } else if (mode === 'week') {
-      const firstDay = new Date(today.setDate(today.getDate() - today.getDay()));
-      setDateStart(formatDate(firstDay));
-      setDateEnd(formatDate(new Date()));
-    } else if (mode === 'month') {
-      const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-      setDateStart(formatDate(firstDay));
-      setDateEnd(formatDate(new Date()));
-    } else {
-      setDateStart('');
-      setDateEnd('');
-    }
-  };
-
   const filteredProducts = products.filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase()));
   const filteredPlans = plans.filter(pl => pl.name.toLowerCase().includes(planSearch.toLowerCase()) || pl.telecom.includes(planSearch));
 
-  const filteredRecords = salesRecords.filter(r => {
-    const matchSearch = r.orderNo.toLowerCase().includes(recordSearch.toLowerCase()) ||
-                          r.customerName.toLowerCase().includes(recordSearch.toLowerCase()) ||
-                          r.salesperson.toLowerCase().includes(recordSearch.toLowerCase()) ||
-                          r.items.some(it => it.name.toLowerCase().includes(recordSearch.toLowerCase()));
-    const matchSalesperson = filterSalesperson === '全部門市人員' || r.salesperson === filterSalesperson;
-    return matchSearch && matchSalesperson;
-  });
-
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">
-      {/* 左側 9 大功能選單 */}
-      <div className="w-64 bg-slate-950 flex flex-col justify-between border-r border-slate-800/60 shrink-0">
-        <div className="p-5 space-y-6">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center font-bold text-white shadow-md shadow-blue-600/30">
-              P
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-white tracking-wide">POS 門市系統</h2>
-              <p className="text-[10px] text-slate-400 font-mono mt-0.5">v1.0.0</p>
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            <p className="text-[10px] text-slate-500 font-bold uppercase px-3 pb-1">主要功能</p>
-            {[
-              { id: 'pos', name: '控制台' },
-              { id: 'purchasing', name: '進貨管理' },
-              { id: 'inventory', name: '新品庫存管理' },
-              { id: 'used', name: '中古機總覽' },
-              { id: 'repair', name: '維修管理' },
-              { id: 'customers', name: '客戶管理' },
-              { id: 'vendors', name: '廠商管理' },
-              { id: 'plans', name: '方案管理' },
-              { id: 'records', name: '銷售紀錄' },
-              { id: 'reports', name: '營運報表' },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition ${
-                  activeTab === tab.id
-                    ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
-                    : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
-                }`}
-              >
-                <span>{tab.name}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="p-4 bg-slate-900/40 border-t border-slate-800/60 m-3 rounded-2xl flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl bg-slate-800 flex items-center justify-center font-bold text-xs text-blue-400">
-            N
-          </div>
-          <div className="overflow-hidden">
-            <p className="text-xs font-bold text-slate-200 truncate">管理員</p>
-            <p className="text-[10px] text-slate-400 truncate">admin@pos.com</p>
-          </div>
-        </div>
-      </div>
-
-      {/* 右側主要內容區 */}
+      {/* 頂部切換頁籤（因為佈局已在 layout.tsx 帶有側邊欄，此處僅保留內容與切換邏輯） */}
       <div className="flex-1 bg-slate-50 text-slate-800 overflow-y-auto p-6">
+        
+        {/* 快速切換頂部列（方便在單頁直接切換各模組測試） */}
+        <div className="mb-6 flex items-center gap-2 bg-white p-3 rounded-2xl shadow-sm border border-slate-200/60">
+          <span className="text-xs font-bold text-slate-500 px-2">快速切換頁面：</span>
+          {[
+            { id: 'pos', name: '銷貨結帳(控制台)' },
+            { id: 'inventory', name: '新品庫存管理' },
+            { id: 'plans', name: '方案管理' },
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                activeTab === tab.id ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              {tab.name}
+            </button>
+          ))}
+        </div>
+
         {activeTab === 'pos' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center">
@@ -315,7 +249,7 @@ export default function POSSystem() {
                 {/* 加入商品區 */}
                 <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/60 space-y-3">
                   <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold text-slate-700">加入商品 (支援品名、編號、IMEI、序號搜尋)</span>
+                    <span className="text-xs font-bold text-slate-700">加入商品 (直接讀取「新品庫存管理」與新增商品)</span>
                   </div>
                   <input
                     type="text"
@@ -523,7 +457,6 @@ export default function POSSystem() {
                   <option value="中華電信">中華電信</option>
                   <option value="台灣大哥大">台灣大哥大</option>
                   <option value="遠傳電信">遠傳電信</option>
-                  <option value="亞太/台灣之星">亞太/台灣之星</option>
                 </select>
                 <input
                   type="number"
@@ -641,33 +574,6 @@ export default function POSSystem() {
                   ))}
                 </div>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* 其他分頁防呆 fallback */}
-        {activeTab !== 'pos' && activeTab !== 'plans' && activeTab !== 'inventory' && (
-          <div className="space-y-4">
-            <div>
-              <h1 className="text-xl font-bold text-slate-800">
-                {activeTab === 'purchasing' && '進貨管理'}
-                {activeTab === 'used' && '中古機總覽'}
-                {activeTab === 'repair' && '維修管理'}
-                {activeTab === 'customers' && '客戶管理'}
-                {activeTab === 'vendors' && '廠商管理'}
-                {activeTab === 'records' && '銷售紀錄'}
-                {activeTab === 'reports' && '營運報表'}
-              </h1>
-              <p className="text-xs text-slate-400 mt-0.5">此模組運作正常，您可以隨時切換回控制台或方案/庫存管理。</p>
-            </div>
-            <div className="bg-white rounded-3xl p-12 shadow-sm border border-slate-200/60 text-center space-y-3">
-              <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto font-bold text-lg">
-                ✓
-              </div>
-              <h3 className="text-sm font-bold text-slate-800">模組已載入</h3>
-              <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                頁面架構與資料同步已完成，您可以點擊左側「控制台」回到銷貨結帳畫面。
-              </p>
             </div>
           </div>
         )}
@@ -808,6 +714,7 @@ export default function POSSystem() {
             </div>
           </div>
         )}
+
       </div>
     </div>
   );
