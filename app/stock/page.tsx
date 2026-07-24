@@ -1,455 +1,1291 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '../lib/supabase';
 
-// 定義商品型別
 interface Product {
-  id: number;
+  id: string;
   name: string;
-  category: string;
-  cost: number;
   price: number;
-  stock: number;
-  serial_numbers?: string;
-}
-
-// 定義進貨紀錄型別 (供彈窗使用)
-interface PurchaseRecord {
-  id: number;
-  product_id: number;
-  product_name: string;
   cost: number;
-  serial_numbers: string | null;
-  created_at: string;
-  note?: string; // 備註
-  status?: string; // 狀態：在庫、已售出
+  stock: number;
+  imei?: string;
+  serialNumber?: string;
+  cardNo?: string;
+  code?: string;
 }
 
-export default function StockPage() {
+interface Plan {
+  id: string;
+  code: string;
+  name: string;
+  carrier: string; // 對接方案管理的 carrier
+  type: string;
+  monthlyFee: number;
+  actualCommission: number;
+  storeCommission: number;
+  contractPeriod?: number;
+  prepayment?: number;
+}
+
+interface Customer {
+  id: string;
+  name: string;
+  phone: string;
+}
+
+interface CartItem {
+  id: string;
+  name: string;
+  price: number;
+  cost: number;
+  commission: number;
+  quantity: number;
+  type: 'product' | 'plan' | 'custom' | 'repair';
+  imei?: string;
+  cardNo?: string;
+}
+
+interface PaymentRow {
+  id: string;
+  method: '現金' | '刷卡' | '刷卡分期' | '無卡分期' | '匯款';
+  installments: string;
+}
+
+interface SaleRecord {
+  id: string;
+  orderNo: string;
+  date: string;
+  customerName: string;
+  customerType: string;
+  salesperson: string;
+  store: string;
+  items: {
+    name: string;
+    imei: string;
+    cost: number;
+    price: number;
+    quantity: number;
+    category?: 'combination' | 'phone' | 'usedPhone' | 'accessory' | 'repair';
+  }[];
+  totalAmount: number;
+  totalCost: number;
+  profit: number;
+  paymentInfo: string;
+}
+
+const POS_PLANS_KEY = 'pos_plans';
+const POS_PRODUCTS_KEY = 'pos_products';
+
+export default function Home() {
+  const [currentTab, setCurrentTab] = useState<'pos' | 'salesRecord' | 'performance'>('pos');
+
   const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedSubCategory, setSelectedSubCategory] = useState('全部小類');
-
-  // 統計數值狀態
-  const [totalItems, setTotalItems] = useState(0);
-  const [totalMarketValue, setTotalMarketValue] = useState(0);
-  const [totalCostValue, setTotalCostValue] = useState(0);
-
-  // --- 彈窗相關狀態 ---
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [detailRecords, setDetailRecords] = useState<PurchaseRecord[]>([]);
-  const [loadingDetails, setLoadingDetails] = useState(false);
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
 
   useEffect(() => {
+    fetchSalesRecords();
+    fetchPlans();
     fetchProducts();
+    fetchCustomers();
   }, []);
 
-  // 1. 撈取庫存列表
-  async function fetchProducts() {
-    setLoading(true);
+  // 1. 讀取商品庫存 (支援 Supabase 與 LocalStorage 'pos_products')
+  const fetchProducts = async () => {
+    // 優先讀取 LocalStorage 快取
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(POS_PRODUCTS_KEY);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setProducts(parsed);
+          }
+        } catch (e) {
+          console.error('解析本地商品資料失敗:', e);
+        }
+      }
+    }
+
     try {
       const { data, error } = await supabase
         .from('products')
         .select('*')
-        .order('id', { ascending: true });
+        .order('created_at', { ascending: false });
 
-      if (error) throw error;
-
-      const formatted = (data || []).map((p: any) => ({
-        id: p.id,
-        name: p.name,
-        category: p.category || p.type || '未分類',
-        cost: p.cost || 0,
-        price: p.price || 0,
-        stock: p.stock || 0,
-        serial_numbers: p.serial_numbers || ''
-      }));
-
-      setProducts(formatted);
-      calculateSummary(formatted);
-    } catch (err: any) {
-      console.error('載入庫存失敗：', err.message);
-    } finally {
-      setLoading(false);
+      if (data && !error && data.length > 0) {
+        const formattedProducts: Product[] = data.map((item: any) => ({
+          id: String(item.id),
+          name: item.name || item.product_name || item.title || '',
+          price: Number(item.price || item.selling_price || 0),
+          cost: Number(item.cost || item.cost_price || 0),
+          stock: Number(item.stock !== undefined ? item.stock : (item.quantity || 1)),
+          imei: item.imei || item.imei_number || '',
+          serialNumber: item.serial_number || item.sn || item.serialNo || '',
+          cardNo: item.card_no || item.iccid || item.sim_no || item.card_number || '',
+          code: item.code || item.product_code || ''
+        }));
+        setProducts(formattedProducts);
+        localStorage.setItem(POS_PRODUCTS_KEY, JSON.stringify(formattedProducts));
+      }
+    } catch (err) {
+      console.log('連線 Supabase 商品失敗，使用本地資料運作');
     }
-  }
+  };
 
-  // 2. 計算底部資訊卡片
-  function calculateSummary(items: Product[]) {
-    let itemsCount = 0;
-    let marketSum = 0;
-    let costSum = 0;
+  // 2. 精準讀取方案資料 (完全對接「方案管理」的欄位 structure & 'pos_plans' LocalStorage)
+  const fetchPlans = async () => {
+    // 優先讀取「方案管理」寫入的 LocalStorage ('pos_plans')
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(POS_PLANS_KEY);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setPlans(parsed);
+          }
+        } catch (e) {
+          console.error('解析 LocalStorage pos_plans 失敗:', e);
+        }
+      }
+    }
 
-    items.forEach(p => {
-      itemsCount += p.stock;
-      marketSum += (p.price * p.stock);
-      costSum += (p.cost * p.stock);
+    try {
+      const { data, error } = await supabase.from('plans').select('*').order('created_at', { ascending: false });
+
+      if (data && !error && data.length > 0) {
+        const formattedPlans: Plan[] = data.map((item: any) => ({
+          id: String(item.id),
+          code: item.code || '',
+          name: item.name || '',
+          carrier: item.carrier || item.telecom || '遠傳電信',
+          type: item.type || '新申辦',
+          monthlyFee: Number(item.monthly_fee || item.monthlyFee || 0),
+          actualCommission: Number(item.actual_commission || item.actualCommission || 0),
+          storeCommission: Number(item.store_commission || item.storeCommission || 0),
+          contractPeriod: Number(item.contract_period || item.contractPeriod || 24),
+          prepayment: Number(item.prepayment || 0),
+        }));
+        setPlans(formattedPlans);
+        localStorage.setItem(POS_PLANS_KEY, JSON.stringify(formattedPlans));
+      }
+    } catch (err) {
+      console.log('連線 Supabase 方案資料失敗，使用本地資料運作');
+    }
+  };
+
+  // 3. 動態讀取 Supabase 中的客戶清單
+  const fetchCustomers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('customers')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (data && !error && data.length > 0) {
+        const formattedCustomers: Customer[] = data.map((item: any) => ({
+          id: String(item.id),
+          name: item.name || '',
+          phone: item.phone || item.mobile || ''
+        }));
+        setCustomers(formattedCustomers);
+      }
+    } catch (err) {
+      console.error('連線 Supabase 客戶資料失敗:', err);
+    }
+  };
+
+  const [salesRecords, setSalesRecords] = useState<SaleRecord[]>([]);
+
+  const fetchSalesRecords = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('sales_records')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (data && !error && data.length > 0) {
+        const formattedRecords: SaleRecord[] = data.map((item: any) => ({
+          id: item.id,
+          orderNo: item.order_no,
+          date: item.date,
+          customerName: item.customer_name,
+          customerType: item.customer_type,
+          salesperson: item.salesperson,
+          store: item.store,
+          items: typeof item.items === 'string' ? JSON.parse(item.items) : item.items,
+          totalAmount: Number(item.total_amount),
+          totalCost: Number(item.total_cost),
+          profit: Number(item.profit),
+          paymentInfo: item.payment_info
+        }));
+        setSalesRecords(formattedRecords);
+      }
+    } catch (err) {
+      console.error('連線 Supabase 銷售紀錄失敗:', err);
+    }
+  };
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [cart, setCart] = useState<CartItem[]>([]);
+  
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
+
+  const [isQuickCustomerModalOpen, setIsQuickCustomerModalOpen] = useState(false);
+  const [newCustName, setNewCustName] = useState('');
+  const [newCustPhone, setNewCustPhone] = useState('');
+
+  const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
+  const [planSearch, setPlanSearch] = useState('');
+
+  const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
+  const [customName, setCustomName] = useState('');
+  const [customPrice, setCustomPrice] = useState('');
+  const [customCategory, setCustomCategory] = useState<'accessory' | 'repair'>('accessory');
+  const [customCost, setCustomCost] = useState('');
+
+  const [payments, setPayments] = useState<PaymentRow[]>([
+    { id: '1', method: '現金', installments: '—' },
+  ]);
+
+  const feeRates: Record<string, number> = {
+    '現金': 0,
+    '刷卡': 0.02,
+    '刷卡分期-3': 0.03,
+    '刷卡分期-6': 0.04,
+    '刷卡分期-12': 0.06,
+    '刷卡分期-18': 0.035,
+    '刷卡分期-24': 0.04,
+    '無卡分期': 0.05,
+    '匯款': 0,
+  };
+
+  const getTodayStr = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const [recordSearchKeyword, setRecordSearchKeyword] = useState('');
+  const [filterStoreStaff, setFilterStoreStaff] = useState('全部');
+  const [filterCustType, setFilterCustType] = useState('全部');
+  const [datePreset, setDatePreset] = useState<'today' | 'week' | 'month' | 'all'>('today');
+
+  const [startDate, setStartDate] = useState(getTodayStr());
+  const [endDate, setEndDate] = useState(getTodayStr());
+  const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
+
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingRecord, setEditingRecord] = useState<SaleRecord | null>(null);
+
+  const [perfStaff, setPerfStaff] = useState('全部人員');
+  const [perfStartDate, setPerfStartDate] = useState(getTodayStr());
+  const [perfEndDate, setPerfEndDate] = useState(getTodayStr());
+
+  const handleDatePreset = (preset: 'today' | 'week' | 'month' | 'all') => {
+    setDatePreset(preset);
+    const today = new Date();
+    const formatDateStr = (d: Date) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    if (preset === 'today') {
+      const s = formatDateStr(today);
+      setStartDate(s);
+      setEndDate(s);
+    } else if (preset === 'week') {
+      const firstDayOfWeek = new Date(today);
+      firstDayOfWeek.setDate(today.getDate() - today.getDay());
+      setStartDate(formatDateStr(firstDayOfWeek));
+      setEndDate(formatDateStr(today));
+    } else if (preset === 'month') {
+      const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      setStartDate(formatDateStr(firstDayOfMonth));
+      setEndDate(formatDateStr(today));
+    } else if (preset === 'all') {
+      setStartDate('2025-01-01');
+      setEndDate('2030-12-31');
+    }
+  };
+
+  const handlePerfPreset = (type: 'today' | 'month' | 'all') => {
+    const today = new Date();
+    const formatDateStr = (d: Date) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    if (type === 'today') {
+      const s = formatDateStr(today);
+      setPerfStartDate(s);
+      setPerfEndDate(s);
+    } else if (type === 'month') {
+      const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      setPerfStartDate(formatDateStr(firstDayOfMonth));
+      setPerfEndDate(formatDateStr(today));
+    } else if (type === 'all') {
+      setPerfStartDate('2025-01-01');
+      setPerfEndDate('2030-12-31');
+    }
+  };
+
+  const filteredSalesRecords = salesRecords.filter(record => {
+    const keyword = recordSearchKeyword.toLowerCase();
+    const matchKeyword = !keyword ||
+      record.orderNo.toLowerCase().includes(keyword) ||
+      record.customerName.toLowerCase().includes(keyword) ||
+      record.salesperson.toLowerCase().includes(keyword) ||
+      record.items.some(i => i.name.toLowerCase().includes(keyword) || i.imei.toLowerCase().includes(keyword));
+
+    const matchStaff = filterStoreStaff === '全部' || record.salesperson === filterStoreStaff;
+    const matchCustType = filterCustType === '全部' || record.customerType === filterCustType;
+    const matchDate = record.date >= startDate && record.date <= endDate;
+
+    return matchKeyword && matchStaff && matchCustType && matchDate;
+  });
+
+  const filteredPerfRecords = salesRecords.filter(record => {
+    const matchStaff = perfStaff === '全部人員' || record.salesperson === perfStaff;
+    const matchDate = record.date >= perfStartDate && record.date <= perfEndDate;
+    return matchStaff && matchDate;
+  });
+
+  const perfTotalAmount = filteredPerfRecords.reduce((sum, r) => sum + r.totalAmount, 0);
+  const perfTotalProfit = filteredPerfRecords.reduce((sum, r) => sum + r.profit, 0);
+
+  const handleDeleteRecord = async (id: string) => {
+    if (confirm('確定要刪除這筆銷售紀錄嗎？')) {
+      try {
+        await supabase.from('sales_records').delete().eq('id', id);
+      } catch (e) {}
+
+      setSalesRecords(prev => prev.filter(r => r.id !== id));
+      setIsEditModalOpen(false);
+      setEditingRecord(null);
+      alert('刪除成功！');
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingRecord) return;
+    const totalCost = editingRecord.items.reduce((sum, i) => sum + i.cost * i.quantity, 0);
+    const totalAmount = editingRecord.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+    const profit = totalAmount - totalCost;
+
+    const updatedDbPayload = {
+      order_no: editingRecord.orderNo,
+      date: editingRecord.date,
+      customer_name: editingRecord.customerName,
+      customer_type: editingRecord.customerType,
+      salesperson: editingRecord.salesperson,
+      store: editingRecord.store,
+      items: editingRecord.items,
+      total_amount: totalAmount,
+      total_cost: totalCost,
+      profit: profit,
+      payment_info: editingRecord.paymentInfo
+    };
+
+    try {
+      await supabase.from('sales_records').update(updatedDbPayload).eq('id', editingRecord.id);
+    } catch (e) {}
+
+    fetchSalesRecords();
+    setIsEditModalOpen(false);
+    setEditingRecord(null);
+    alert('修改成功！');
+  };
+
+  const addToCart = (item: Product) => {
+    setCart((prev) => {
+      const existing = prev.find((i) => i.id === item.id);
+      if (existing) {
+        return prev.map((i) => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
+      }
+      return [...prev, { 
+        id: item.id, 
+        name: item.name, 
+        price: item.price, 
+        cost: item.cost, 
+        commission: 0, 
+        quantity: 1, 
+        type: 'product',
+        imei: item.imei,
+        cardNo: item.cardNo
+      }];
     });
+  };
 
-    setTotalItems(itemsCount);
-    setTotalMarketValue(marketSum);
-    setTotalCostValue(costSum);
-  }
+  const handleSelectPlan = (plan: Plan) => {
+    setSelectedPlan(plan);
+    const comm = plan.actualCommission || plan.storeCommission || 0;
+    const planCartItem: CartItem = {
+      id: `plan-${plan.id}`,
+      name: `[${plan.carrier}] ${plan.name} (${plan.type})`,
+      price: 0,
+      cost: 0,
+      commission: comm,
+      quantity: 1,
+      type: 'plan',
+    };
+    setCart((prev) => [...prev.filter(i => i.type !== 'plan'), planCartItem]);
+    setIsPlanModalOpen(false);
+  };
 
-  // 3. 「刪除商品」功能
-  async function handleDeleteProduct(id: number, name: string) {
-    const confirmDelete = window.confirm(
-      `⚠️ 警告！確定要刪除「${name}」嗎？\n\n這會連同此商品的所有「進貨紀錄」和「現有庫存」一起刪除，且無法復原！`
-    );
-    if (!confirmDelete) return;
+  const handleAddCustomItem = () => {
+    if (!customName.trim() || !customPrice) {
+      alert('請完整填寫項目名稱與金額！');
+      return;
+    }
+    const priceNum = parseFloat(customPrice);
+    const costNum = parseFloat(customCost) || 0;
+    if (isNaN(priceNum)) {
+      alert('金額必須為有效數字！');
+      return;
+    }
+
+    const newItem: CartItem = {
+      id: `custom-${Date.now()}`,
+      name: customName,
+      price: priceNum,
+      cost: costNum,
+      commission: 0,
+      quantity: 1,
+      type: customCategory === 'repair' ? 'repair' : 'custom',
+    };
+
+    setCart((prev) => [...prev, newItem]);
+    setCustomName('');
+    setCustomPrice('');
+    setCustomCost('');
+    setIsCustomModalOpen(false);
+  };
+
+  const handleCreateCustomer = async () => {
+    if (!newCustName.trim() || !newCustPhone.trim()) {
+      alert('請填寫姓名與電話！');
+      return;
+    }
+
+    const newCustPayload = {
+      id: String(Date.now()),
+      name: newCustName.trim(),
+      phone: newCustPhone.trim()
+    };
 
     try {
-      const { error } = await supabase
-        .from('products')
-        .delete()
-        .eq('id', id);
+      await supabase.from('customers').insert([{ name: newCustPayload.name, phone: newCustPayload.phone }]);
+    } catch (e) {}
 
-      if (error) throw error;
+    setCustomers(prev => [newCustPayload, ...prev]);
+    setCustomerSearch(`${newCustPayload.name} ( ${newCustPayload.phone} )`);
+    setNewCustName('');
+    setNewCustPhone('');
+    setIsQuickCustomerModalOpen(false);
+  };
 
-      alert('🗑️ 商品已成功刪除！');
-      fetchProducts(); // 重新整理列表與統計數字
-    } catch (err: any) {
-      alert('刪除失敗：' + err.message);
+  const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+
+  const totalProfit = cart.reduce((sum, item) => {
+    if (item.type === 'plan') {
+      return sum + item.commission;
     }
-  }
+    return sum + (item.price - item.cost) * item.quantity;
+  }, 0);
 
-  // 4. 點擊品名開啟明細彈窗並獲取進貨資料
-  async function handleOpenDetails(product: Product) {
-    setSelectedProduct(product);
-    setLoadingDetails(true);
+  const addPaymentRow = () => {
+    setPayments([...payments, { id: Date.now().toString(), method: '刷卡分期', installments: '3' }]);
+  };
+
+  const removePaymentRow = (id: string) => {
+    setPayments(payments.filter(p => p.id !== id));
+  };
+
+  const handleCheckout = async () => {
+    if (cart.length === 0) {
+      alert('購物車目前沒有項目！');
+      return;
+    }
+
+    const nowStr = getTodayStr();
+    const orderNo = `SD${nowStr.replace(/-/g, '').slice(2)}${Math.floor(100 + Math.random() * 900)}`;
+    const recordId = `sr-${Date.now()}`;
+
+    const newDbRecord = {
+      id: recordId,
+      order_no: orderNo,
+      date: nowStr,
+      customer_name: customerSearch.split('(')[0].trim() || '個人貴賓',
+      customer_type: '個人貴賓',
+      salesperson: '管理員',
+      store: '總店',
+      items: cart.map(i => ({
+        name: i.name,
+        imei: i.imei || i.cardNo || '—',
+        cost: i.type === 'plan' ? 0 : i.cost,
+        price: i.price,
+        quantity: i.quantity,
+        category: i.type === 'repair' ? 'repair' : 'accessory'
+      })),
+      total_amount: subtotal,
+      total_cost: 0,
+      profit: totalProfit,
+      payment_info: payments.map(p => p.method === '刷卡分期' ? `刷卡分期(${p.installments}期)` : p.method).join(', ')
+    };
+
     try {
-      // 從 purchase_records 撈取該產品所有的進貨紀錄
-      const { data, error } = await supabase
-        .from('purchase_records')
-        .select('*')
-        .eq('product_id', product.id)
-        .order('id', { ascending: true });
+      await supabase.from('sales_records').insert([newDbRecord]);
+    } catch (e) {}
 
-      if (error) throw error;
+    await fetchSalesRecords();
+    setExpandedRowId(recordId);
+    alert(`結帳成功！單號：${orderNo}，總金額：$${subtotal.toLocaleString()}，總毛利：$${totalProfit.toLocaleString()}。`);
 
-      // 整理進貨紀錄資料
-      const formattedRecords = (data || []).map((r: any) => {
-        // 若該筆進貨序列號不在 product.serial_numbers 裡面，或者庫存已經為 0，則視為「已售出」
-        const inStockSerials = product.serial_numbers ? product.serial_numbers.split(',').map(s => s.trim()) : [];
-        const isCurrentlyInStock = r.serial_numbers ? inStockSerials.includes(r.serial_numbers.trim()) : (product.stock > 0);
+    setCart([]);
+    setSelectedPlan(null);
+    setPayments([{ id: '1', method: '現金', installments: '—' }]);
+    setCurrentTab('salesRecord');
+  };
 
-        return {
-          id: r.id,
-          product_id: r.product_id,
-          product_name: r.product_name,
-          cost: r.cost || product.cost, // 若紀錄沒填，預設回商品原設定成本
-          serial_numbers: r.serial_numbers || null,
-          created_at: r.created_at,
-          note: r.note || '', // 備註
-          status: isCurrentlyInStock ? '在庫' : '已售出'
-        };
-      });
-
-      setDetailRecords(formattedRecords);
-    } catch (err: any) {
-      console.error('獲取進貨明細失敗：', err.message);
-    } finally {
-      setLoadingDetails(false);
-    }
-  }
-
-  // 5. 更新進貨紀錄的備註
-  async function handleUpdateNote(recordId: number, newNote: string) {
-    try {
-      const { error } = await supabase
-        .from('purchase_records')
-        .update({ note: newNote })
-        .eq('id', recordId);
-
-      if (error) throw error;
-
-      // 更新 React 內部的 state 以即時更新 UI
-      setDetailRecords(prev =>
-        prev.map(r => (r.id === recordId ? { ...r, note: newNote } : r))
-      );
-    } catch (err: any) {
-      alert('備註儲存失敗：' + err.message);
-    }
-  }
-
-  // 6. 關鍵字與分類篩選
+  // 🔥 多欄位強效比對搜尋：支援「名稱」、「編號」、「IMEI」、「序號」、「SIM卡號/ICCID」
   const filteredProducts = products.filter(p => {
-    const matchesSearch = 
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      `PRD${String(p.id).padStart(6, '0')}`.includes(searchQuery) ||
-      (p.serial_numbers && p.serial_numbers.includes(searchQuery));
-    
-    const matchesCategory = selectedSubCategory === '全部小類' || p.category === selectedSubCategory;
-    return matchesSearch && matchesCategory;
+    const kw = searchQuery.toLowerCase().trim();
+    if (!kw) return true;
+    return (
+      (p.name && p.name.toLowerCase().includes(kw)) ||
+      (p.code && p.code.toLowerCase().includes(kw)) ||
+      (p.imei && p.imei.toLowerCase().includes(kw)) ||
+      (p.serialNumber && p.serialNumber.toLowerCase().includes(kw)) ||
+      (p.cardNo && p.cardNo.toLowerCase().includes(kw))
+    );
+  });
+  
+  const filteredCustomers = customers.filter(c =>
+    !customerSearch ||
+    c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
+    c.phone.includes(customerSearch)
+  );
+
+  const filteredPlans = plans.filter(pl => {
+    const kw = planSearch.toLowerCase().trim();
+    if (!kw) return true;
+    return (
+      (pl.name && pl.name.toLowerCase().includes(kw)) ||
+      (pl.code && pl.code.toLowerCase().includes(kw)) ||
+      (pl.carrier && pl.carrier.toLowerCase().includes(kw)) ||
+      (pl.type && pl.type.toLowerCase().includes(kw)) ||
+      (pl.monthlyFee && pl.monthlyFee.toString().includes(kw))
+    );
   });
 
   return (
-    <div className="flex-1 p-8 overflow-y-auto bg-[#F8FAFC]">
-      <div className="max-w-[1400px] mx-auto space-y-6">
-        
-        {/* 標題與盤點按鈕 */}
-        <div className="flex justify-between items-center">
-          <div>
-            <h2 className="text-2xl font-bold text-slate-900">庫存管理</h2>
-            <p className="text-slate-500 text-xs mt-1">同品名分組顯示，點擊商品名稱查看詳細進貨明細、各台成本與歷史日期</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-sm font-medium transition shadow-sm">
-              📤 匯出盤點表
-            </button>
-            <button className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition shadow-sm">
-              📋 盤點
-            </button>
-          </div>
-        </div>
-
-        {/* 搜尋與篩選欄 */}
-        <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-sm flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3 flex-1 min-w-[300px]">
-            <div className="relative flex-1">
-              <span className="absolute left-3 top-2.5 text-slate-400 text-sm">🔍</span>
-              <input 
-                type="text" 
-                placeholder="搜尋品名、編號、IMEI、SIM..." 
-                className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition" 
-                value={searchQuery} 
-                onChange={(e) => setSearchQuery(e.target.value)} 
-              />
-            </div>
-            <label className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer">
-              <input type="checkbox" className="rounded text-blue-600 focus:ring-blue-500" />
-              <span>⚠️ 只看滯銷</span>
-            </label>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-400">滯銷定義：</span>
-            <button className="px-3 py-1.5 text-xs bg-slate-100 text-slate-600 rounded font-medium">2個月</button>
-            <button className="px-3 py-1.5 text-xs bg-slate-100 text-slate-600 rounded font-medium">3個月</button>
-            <button className="px-3 py-1.5 text-xs bg-red-50 text-red-600 border border-red-100 rounded font-bold">4個月+</button>
-            
-            <select 
-              className="border border-slate-200 bg-white rounded-lg px-3 py-1.5 text-sm text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-              value={selectedSubCategory}
-              onChange={(e) => setSelectedSubCategory(e.target.value)}
+    <div className="flex-1 flex flex-col min-w-0 overflow-y-auto bg-slate-100 text-slate-800 font-sans w-full">
+      {/* 頂部切換頁籤列 */}
+      <div className="bg-white border-b border-slate-200 px-8 py-3 flex items-center justify-between shadow-sm">
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-bold text-slate-500">快速切換：</span>
+          <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl text-xs">
+            <button
+              onClick={() => setCurrentTab('pos')}
+              className={`px-3 py-1 rounded-lg transition font-medium ${currentTab === 'pos' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
             >
-              <option value="全部小類">全部小類</option>
-              <option value="手機">手機</option>
-              <option value="配件">配件</option>
-              <option value="SIM卡">SIM卡</option>
-              <option value="其他">其他</option>
-            </select>
+              🛒 銷貨結帳
+            </button>
+            <button
+              onClick={() => setCurrentTab('salesRecord')}
+              className={`px-3 py-1 rounded-lg transition font-medium ${currentTab === 'salesRecord' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              📄 銷售紀錄
+            </button>
+            <button
+              onClick={() => setCurrentTab('performance')}
+              className={`px-3 py-1 rounded-lg transition font-medium ${currentTab === 'performance' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              📊 業績報表
+            </button>
           </div>
         </div>
-
-        {/* 庫存列表表格 */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200/80 overflow-hidden">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50/75 border-b border-slate-200 text-xs font-bold text-slate-400 uppercase tracking-wider">
-                <th className="py-4 px-6">商品編號</th>
-                <th className="py-4 px-6">品名 ↑</th>
-                <th className="py-4 px-6">類別</th>
-                <th className="py-4 px-6">數量</th>
-                <th className="py-4 px-6">IMEI / SIM ( 第一筆 )</th>
-                <th className="py-4 px-6">實際成本</th>
-                <th className="py-4 px-6 text-center">操作</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
-              {loading ? (
-                <tr><td colSpan={7} className="text-center py-12 text-slate-400">庫存資料載入中...</td></tr>
-              ) : filteredProducts.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-12 text-slate-400">目前無符合篩選條件的庫存商品</td></tr>
-              ) : (
-                filteredProducts.map((p) => (
-                  <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="py-4 px-6 font-mono text-xs text-slate-400">
-                      PRD{String(p.id).padStart(6, '0')}
-                    </td>
-                    {/* 點擊品名開啟明細 */}
-                    <td 
-                      onClick={() => handleOpenDetails(p)}
-                      className="py-4 px-6 font-bold text-slate-800 hover:text-blue-600 hover:underline cursor-pointer transition"
-                    >
-                      {p.name}
-                    </td>
-                    <td className="py-4 px-6">
-                      <span className="text-xs bg-slate-100 px-2.5 py-1 rounded text-slate-600">
-                        {p.category}
-                      </span>
-                    </td>
-                    <td className="py-4 px-6">
-                      {p.stock > 0 ? (
-                        <span className="text-blue-600 bg-blue-50 border border-blue-100 font-bold font-mono px-2 py-0.5 rounded text-xs">
-                          {p.stock} 台
-                        </span>
-                      ) : (
-                        <span className="text-slate-400 bg-slate-100 font-mono px-2 py-0.5 rounded text-xs">
-                          0 件
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-4 px-6">
-                      {p.serial_numbers ? (
-                        <span className="text-xs font-mono text-slate-600 bg-slate-50 px-2 py-1 rounded border border-slate-200">
-                          {p.serial_numbers.split(',')[0]}
-                        </span>
-                      ) : (
-                        <span className="text-slate-300">—</span>
-                      )}
-                    </td>
-                    <td className="py-4 px-6 font-semibold font-mono text-slate-800">
-                      ${p.cost.toLocaleString()}
-                    </td>
-                    <td className="py-4 px-6 text-center">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation(); // 防止觸發行點擊事件
-                          handleDeleteProduct(p.id, p.name);
-                        }}
-                        className="text-xs text-red-500 hover:text-white font-semibold bg-red-50 hover:bg-red-500 px-3 py-1.5 rounded-lg border border-red-200 transition-all shadow-sm"
-                      >
-                        刪除
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+        <div className="text-xs text-slate-400">
+          目前身份：<strong className="text-slate-700">管理員</strong>
         </div>
-
-        {/* 底部總計 */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
-            <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">在庫件數</span>
-            <span className="text-3xl font-bold text-slate-800 font-mono mt-2">{totalItems} 件</span>
-          </div>
-          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
-            <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">庫存門市總值 (售價)</span>
-            <span className="text-3xl font-bold text-slate-800 font-mono mt-2">${totalMarketValue.toLocaleString()}</span>
-          </div>
-          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
-            <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">庫存實際總值 (成本)</span>
-            <span className="text-3xl font-bold text-slate-800 font-mono mt-2">${totalCostValue.toLocaleString()}</span>
-          </div>
-        </div>
-
       </div>
 
-      {/* --- 進貨庫存歷史明細彈窗 (根據第二張圖完美復刻) --- */}
-      {selectedProduct && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 transition-opacity">
-          <div className="bg-white rounded-2xl w-full max-w-[900px] shadow-2xl border border-slate-100 overflow-hidden transform transition-all">
-            
-            {/* 彈窗標題與關閉按鈕 */}
-            <div className="p-6 border-b border-slate-100 flex justify-between items-start">
-              <div>
-                <h3 className="text-xl font-bold text-slate-900">{selectedProduct.name}</h3>
-                <p className="text-slate-400 text-xs mt-1">共 {detailRecords.length} 筆進貨歷史</p>
+      {/* 銷貨結帳 */}
+      {currentTab === 'pos' && (
+        <div className="p-8 space-y-6">
+          <div>
+            <h1 className="text-xl font-bold text-slate-800">銷貨結帳</h1>
+            <p className="text-xs text-slate-400 mt-0.5">選取方案不代入月租，金額可自由手動修改，傭金自動計入毛利。</p>
+          </div>
+
+          <div className="grid grid-cols-12 gap-6">
+            <div className="col-span-12 lg:col-span-7 space-y-5">
+              <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/60 space-y-3">
+                <div className="flex justify-between items-center">
+                  <label className="text-xs font-bold text-slate-700">選擇方案</label>
+                  <button onClick={() => { fetchPlans(); setIsPlanModalOpen(true); }} className="text-xs text-blue-600 font-semibold hover:underline">
+                    + 代入電信方案
+                  </button>
+                </div>
+                <div
+                  onClick={() => { fetchPlans(); setIsPlanModalOpen(true); }}
+                  className="w-full border border-dashed border-slate-300 rounded-xl p-3.5 bg-slate-50/50 hover:bg-slate-50 cursor-pointer flex justify-between items-center transition"
+                >
+                  <span className="text-xs text-slate-600 font-medium">
+                    {selectedPlan ? `📌 已代入：[${selectedPlan.carrier}] ${selectedPlan.name} (傭金 $${selectedPlan.actualCommission || selectedPlan.storeCommission || 0})` : '👉 點擊開啟方案選擇視窗'}
+                  </span>
+                  <span className="text-xs text-blue-600 font-semibold bg-blue-50 px-2.5 py-1 rounded-lg">選擇方案</span>
+                </div>
               </div>
-              <button 
-                onClick={() => setSelectedProduct(null)}
-                className="text-slate-400 hover:text-slate-600 transition p-1.5 hover:bg-slate-100 rounded-full"
-              >
-                <span className="text-lg">✕</span>
-              </button>
+
+              <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/60 space-y-4">
+                <h2 className="text-xs font-bold text-slate-700">加入商品</h2>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">🔍</span>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="搜尋商品名稱 / 商品編號 / IMEI / 序號 / SIM卡號..."
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div className="space-y-2 pt-2 max-h-80 overflow-y-auto">
+                  {filteredProducts.length === 0 ? (
+                    <p className="text-center py-6 text-xs text-slate-400">目前庫存內無符合的商品</p>
+                  ) : (
+                    filteredProducts.map((p) => (
+                      <div
+                        key={p.id}
+                        onClick={() => addToCart(p)}
+                        className="flex justify-between items-center p-3.5 rounded-xl border border-slate-100 bg-white hover:border-blue-300 hover:shadow-sm cursor-pointer transition"
+                      >
+                        <div>
+                          <p className="text-xs font-bold text-slate-800">{p.name}</p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            庫存：{p.stock} | 成本：${p.cost}
+                            {p.imei && ` | IMEI: ${p.imei}`}
+                            {p.cardNo && ` | SIM卡號: ${p.cardNo}`}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs font-mono font-bold text-blue-600">${p.price}</span>
+                          <span className="px-2.5 py-1 bg-blue-50 text-blue-600 text-[11px] rounded-lg font-medium">+ 加入</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
             </div>
 
-            {/* 進貨明細表格內容 */}
-            <div className="p-6 max-h-[480px] overflow-y-auto">
-              {loadingDetails ? (
-                <div className="text-center py-12 text-slate-400">正在獲取進貨紀錄明細...</div>
-              ) : detailRecords.length === 0 ? (
-                <div className="text-center py-12 text-slate-400">尚無此商品的進貨歷史紀錄</div>
-              ) : (
-                <table className="w-full text-left border-collapse text-sm">
-                  <thead>
-                    <tr className="bg-slate-50/75 border-b border-slate-200 text-xs font-bold text-slate-400 uppercase tracking-wider">
-                      <th className="py-3 px-4 w-12 text-slate-400">#</th>
-                      <th className="py-3 px-4">IMEI / SIM</th>
-                      <th className="py-3 px-4 text-blue-600">實際成本</th>
-                      <th className="py-3 px-4 text-slate-600">門市售價</th>
-                      <th className="py-3 px-4">狀態</th>
-                      <th className="py-3 px-4">入庫日期</th>
-                      <th className="py-3 px-4">備註 (按 Enter 或移開即儲存)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-slate-700">
-                    {detailRecords.map((record, index) => (
-                      <tr key={record.id} className="hover:bg-slate-50/30 transition-colors">
-                        <td className="py-4 px-4 text-slate-400 font-mono">{index + 1}</td>
-                        <td className="py-4 px-4">
-                          {record.serial_numbers ? (
-                            <span className="font-mono text-slate-600 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded text-xs">
-                              {record.serial_numbers}
-                            </span>
-                          ) : (
-                            <span className="text-slate-300">—</span>
-                          )}
-                        </td>
-                        <td className="py-4 px-4 font-mono font-bold text-blue-600 text-md">
-                          ${record.cost.toLocaleString()}
-                        </td>
-                        <td className="py-4 px-4 font-mono text-slate-500">
-                          ${selectedProduct.price.toLocaleString()}
-                        </td>
-                        <td className="py-4 px-4">
-                          {record.status === '在庫' ? (
-                            <span className="inline-flex items-center gap-1 text-emerald-600 bg-emerald-50 border border-emerald-100 px-2.5 py-0.5 rounded-full text-xs font-medium">
-                              ● 在庫
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-slate-400 bg-slate-100 border border-slate-200 px-2.5 py-0.5 rounded-full text-xs font-medium">
-                              ● 已售出
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-4 px-4 font-mono text-slate-500 text-xs">
-                          {new Date(record.created_at).toLocaleDateString('zh-TW', {
-                            year: 'numeric',
-                            month: '2-digit',
-                            day: '2-digit'
-                          }).replace(/\//g, '-')}
-                        </td>
-                        <td className="py-3 px-4">
-                          <input 
-                            type="text" 
-                            placeholder="輸入備註..." 
-                            className="w-full border border-slate-200 hover:border-slate-300 focus:border-blue-400 rounded-lg px-2.5 py-1.5 text-xs text-slate-600 focus:outline-none transition shadow-inner bg-slate-50/50" 
-                            defaultValue={record.note}
-                            onBlur={(e) => handleUpdateNote(record.id, e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                handleUpdateNote(record.id, e.currentTarget.value);
-                                e.currentTarget.blur(); // 儲存後將焦點移開
-                              }
-                            }}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
+            <div className="col-span-12 lg:col-span-5 space-y-5">
+              <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/60 space-y-4 relative">
+                <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">🛒</span>
+                    <h2 className="text-xs font-bold text-slate-800">購物車明細</h2>
+                    <span className="px-2 py-0.5 bg-blue-600 text-white rounded-full text-[10px] font-mono">{cart.length}</span>
+                  </div>
+                  <button onClick={() => { setCart([]); setSelectedPlan(null); }} className="text-xs text-slate-400 hover:text-rose-500">清空</button>
+                </div>
 
-            {/* 彈窗底部的關閉按鈕 */}
-            <div className="p-4 border-t border-slate-100 flex justify-end bg-slate-50/30">
-              <button 
-                onClick={() => setSelectedProduct(null)}
-                className="px-6 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-medium rounded-lg text-sm transition shadow-sm"
-              >
-                關閉
-              </button>
-            </div>
+                <div className="space-y-1.5 relative">
+                  <div className="flex justify-between items-center text-[11px] text-slate-500">
+                    <span>客戶（選填，個人貴賓可不選）</span>
+                    <button onClick={() => setIsQuickCustomerModalOpen(true)} className="text-blue-600 font-semibold hover:underline">
+                      ＋ 快速建立會員
+                    </button>
+                  </div>
 
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={customerSearch}
+                      onFocus={() => { fetchCustomers(); setIsCustomerDropdownOpen(true); }}
+                      onChange={(e) => {
+                        setCustomerSearch(e.target.value);
+                        setIsCustomerDropdownOpen(true);
+                      }}
+                      placeholder="點擊選取客戶 或 搜尋姓名/電話..."
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500"
+                    />
+
+                    {isCustomerDropdownOpen && (
+                      <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto z-20">
+                        {filteredCustomers.length === 0 ? (
+                          <div className="p-3 text-center text-xs text-slate-400">找不到符合的客戶資料</div>
+                        ) : (
+                          filteredCustomers.map((c) => (
+                            <div
+                              key={c.id}
+                              onClick={() => {
+                                setCustomerSearch(`${c.name} ( ${c.phone} )`);
+                                setIsCustomerDropdownOpen(false);
+                              }}
+                              className="px-3 py-2.5 hover:bg-blue-50 cursor-pointer flex justify-between items-center text-xs border-b border-slate-50 last:border-none"
+                            >
+                              <span className="font-bold text-slate-800">{c.name}</span>
+                              <span className="text-slate-400 font-mono">{c.phone}</span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
+                  {cart.length === 0 ? (
+                    <p className="text-center py-6 text-xs text-slate-400">尚未加入品項或方案</p>
+                  ) : (
+                    cart.map((item) => {
+                      const itemProfit = item.type === 'plan' ? item.commission : (item.price - item.cost) * item.quantity;
+                      return (
+                        <div key={item.id} className="p-3 rounded-xl border border-slate-100 bg-slate-50/50 space-y-2 text-xs">
+                          <div className="flex justify-between items-center">
+                            <span className="font-bold text-slate-800">{item.name}</span>
+                            <button onClick={() => {
+                              if (item.type === 'plan') setSelectedPlan(null);
+                              setCart(cart.filter(i => i.id !== item.id));
+                            }} className="text-slate-300 hover:text-rose-500 font-bold">✕ 刪除</button>
+                          </div>
+
+                          <div className="flex justify-between items-center gap-2">
+                            <div>
+                              <span className="text-[10px] text-slate-400 block">{item.type === 'plan' ? '方案傭金' : '售價 ($)'}</span>
+                              {item.type === 'plan' ? (
+                                <span className="font-mono font-bold text-emerald-600">+${item.commission}</span>
+                              ) : (
+                                <input
+                                  type="number"
+                                  value={item.price}
+                                  onChange={(e) => {
+                                    const val = parseFloat(e.target.value) || 0;
+                                    setCart(cart.map(i => i.id === item.id ? { ...i, price: val } : i));
+                                  }}
+                                  className="w-24 bg-white border border-slate-200 rounded-lg px-2 py-1 font-mono text-slate-700"
+                                />
+                              )}
+                            </div>
+
+                            <div className="text-right">
+                              <span className="text-[10px] text-slate-400 block">預估毛利</span>
+                              <span className="font-mono font-bold text-emerald-600">+${itemProfit}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                <button
+                  onClick={() => { setCustomCategory('accessory'); setIsCustomModalOpen(true); }}
+                  className="w-full py-2.5 border border-dashed border-slate-300 hover:border-blue-500 hover:text-blue-600 text-slate-500 rounded-xl text-xs font-semibold transition"
+                >
+                  ＋ 自訂項目 / 🛠️ 維修項目
+                </button>
+
+                <div className="border-t border-slate-100 pt-4 space-y-3">
+                  <div className="flex justify-between items-center">
+                    <label className="text-xs font-bold text-slate-700">付款方式與期數</label>
+                    <button onClick={addPaymentRow} className="text-xs text-blue-600 font-semibold hover:underline">+ 新增付款方式</button>
+                  </div>
+
+                  <div className="space-y-2">
+                    {payments.map((pay) => {
+                      const currentKey = pay.method === '刷卡分期' ? `刷卡分期-${pay.installments}` : pay.method;
+                      const rate = feeRates[currentKey] || 0;
+                      const estimatedFee = Math.round(subtotal * rate);
+
+                      return (
+                        <div key={pay.id} className="bg-slate-50 p-3 rounded-xl border border-slate-200/80 space-y-2 text-xs">
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={pay.method}
+                              onChange={(e) => {
+                                const newMethod = e.target.value as any;
+                                setPayments(payments.map(p => p.id === pay.id ? { ...p, method: newMethod } : p));
+                              }}
+                              className="bg-white border border-slate-200 rounded-lg px-2 py-1.5 font-medium text-slate-700"
+                            >
+                              <option value="現金">現金</option>
+                              <option value="刷卡">刷卡</option>
+                              <option value="刷卡分期">刷卡分期</option>
+                              <option value="無卡分期">無卡分期</option>
+                              <option value="匯款">匯款</option>
+                            </select>
+
+                            {pay.method === '刷卡分期' && (
+                              <select
+                                value={pay.installments}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setPayments(payments.map(p => p.id === pay.id ? { ...p, installments: val } : p));
+                                }}
+                                className="bg-white border border-slate-200 rounded-lg px-2 py-1.5 font-medium text-blue-600"
+                              >
+                                <option value="3">3 期 (3%)</option>
+                                <option value="6">6 期 (4%)</option>
+                                <option value="12">12 期 (6%)</option>
+                                <option value="18">18 期</option>
+                                <option value="24">24 期</option>
+                              </select>
+                            )}
+
+                            <button onClick={() => removePaymentRow(pay.id)} className="ml-auto text-slate-400 hover:text-rose-500 font-bold">🗑️</button>
+                          </div>
+
+                          <div className="flex justify-between items-center text-[11px] text-slate-500 px-1">
+                            <span>手續費率: <strong className="text-slate-700">{(rate * 100)}%</strong></span>
+                            <span className="text-amber-600 font-mono">手續費加成: +${estimatedFee}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="border-t border-slate-100 pt-4 space-y-2">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-500">預估總毛利：</span>
+                    <span className="font-mono font-bold text-emerald-600 text-sm">+${totalProfit.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="font-bold text-slate-700">總金額：</span>
+                    <span className="font-mono font-bold text-rose-600 text-lg">${subtotal.toLocaleString()}</span>
+                  </div>
+
+                  <button onClick={handleCheckout} className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm transition mt-2">
+                    確認結帳收款
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
 
+      {/* 銷售紀錄 */}
+      {currentTab === 'salesRecord' && (
+        <div className="p-8 space-y-6">
+          <div>
+            <h1 className="text-xl font-bold text-slate-800">銷售紀錄</h1>
+            <p className="text-xs text-slate-400 mt-0.5">查詢與管理銷售訂單記錄。</p>
+          </div>
+
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200/60 space-y-3">
+            <div className="flex flex-wrap items-center gap-3 text-xs">
+              <input
+                type="text"
+                placeholder="搜尋單號 / 客戶 / 經手人員 / 商品名稱 / IMEI..."
+                value={recordSearchKeyword}
+                onChange={(e) => setRecordSearchKeyword(e.target.value)}
+                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 w-72 text-slate-700 focus:outline-none focus:border-blue-500"
+              />
+
+              <select
+                value={filterStoreStaff}
+                onChange={(e) => setFilterStoreStaff(e.target.value)}
+                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700"
+              >
+                <option value="全部">全部門市人員</option>
+                <option value="管理員">管理員</option>
+              </select>
+
+              <select
+                value={filterCustType}
+                onChange={(e) => setFilterCustType(e.target.value)}
+                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700"
+              >
+                <option value="全部">全部客戶類型</option>
+                <option value="個人貴賓">個人貴賓</option>
+              </select>
+
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-slate-700"
+                />
+                <span className="text-slate-400">~</span>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-slate-700"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-1 border-t border-slate-100 text-xs">
+              <button
+                onClick={() => handleDatePreset('today')}
+                className={`px-3 py-1 rounded-lg transition font-medium ${datePreset === 'today' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              >
+                今日
+              </button>
+              <button
+                onClick={() => handleDatePreset('week')}
+                className={`px-3 py-1 rounded-lg transition font-medium ${datePreset === 'week' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              >
+                本週
+              </button>
+              <button
+                onClick={() => handleDatePreset('month')}
+                className={`px-3 py-1 rounded-lg transition font-medium ${datePreset === 'month' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              >
+                本月
+              </button>
+              <button
+                onClick={() => handleDatePreset('all')}
+                className={`px-3 py-1 rounded-lg transition font-medium ${datePreset === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              >
+                全部
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden">
+            <div className="p-4 border-b border-slate-100 text-xs text-slate-500 font-medium">
+              共 <span className="text-blue-600 font-bold">{filteredSalesRecords.length}</span> 筆紀錄
+            </div>
+
+            <div className="divide-y divide-slate-100">
+              {filteredSalesRecords.length === 0 ? (
+                <div className="p-8 text-center text-xs text-slate-400">目前沒有符合條件的銷售紀錄</div>
+              ) : (
+                filteredSalesRecords.map((rec) => (
+                  <div key={rec.id} className="p-4 hover:bg-slate-50/80 transition">
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="space-y-0.5">
+                        <p className="font-bold text-slate-800">{rec.orderNo}</p>
+                        <p className="text-[11px] text-slate-400 font-mono">{rec.date}</p>
+                      </div>
+
+                      <div>
+                        <p className="font-bold text-slate-800">{rec.customerName}</p>
+                        <span className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded text-[10px]">{rec.customerType}</span>
+                      </div>
+
+                      <div className="text-slate-600">{rec.salesperson}</div>
+
+                      <div className="font-mono font-bold text-slate-800">${rec.totalAmount.toLocaleString()}</div>
+
+                      <div className="font-mono font-bold text-emerald-600">+${rec.profit.toLocaleString()}</div>
+
+                      <div>
+                        <span className="px-2 py-1 bg-blue-50 text-blue-600 rounded-lg text-[11px] font-medium">{rec.paymentInfo}</span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            setEditingRecord(rec);
+                            setIsEditModalOpen(true);
+                          }}
+                          className="px-2.5 py-1 text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg font-medium transition"
+                        >
+                          修改
+                        </button>
+                        <button
+                          onClick={() => setExpandedRowId(expandedRowId === rec.id ? null : rec.id)}
+                          className="px-2.5 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg font-medium transition"
+                        >
+                          {expandedRowId === rec.id ? '收起' : '明細'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {expandedRowId === rec.id && (
+                      <div className="mt-3 pt-3 border-t border-slate-100 bg-slate-50/50 p-3 rounded-xl text-xs space-y-1">
+                        <p className="font-bold text-slate-700 mb-1">銷售明細：</p>
+                        {rec.items.map((it, idx) => (
+                          <div key={idx} className="flex justify-between text-slate-600 font-mono text-[11px]">
+                            <span>{it.name} x {it.quantity}</span>
+                            <span>${(it.price * it.quantity).toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 業績報表 */}
+      {currentTab === 'performance' && (
+        <div className="p-8 space-y-6">
+          <div>
+            <h1 className="text-xl font-bold text-slate-800">業績報表</h1>
+            <p className="text-xs text-slate-400 mt-0.5">檢視門市業績與獲利分析。</p>
+          </div>
+
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200/60 space-y-3">
+            <div className="flex items-center gap-3 text-xs">
+              <select
+                value={perfStaff}
+                onChange={(e) => setPerfStaff(e.target.value)}
+                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700"
+              >
+                <option value="全部人員">全部人員</option>
+                <option value="管理員">管理員</option>
+              </select>
+
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="date"
+                  value={perfStartDate}
+                  onChange={(e) => setPerfStartDate(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-slate-700"
+                />
+                <span className="text-slate-400">~</span>
+                <input
+                  type="date"
+                  value={perfEndDate}
+                  onChange={(e) => setPerfEndDate(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-slate-700"
+                />
+              </div>
+
+              <button onClick={() => handlePerfPreset('today')} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-medium">今天</button>
+              <button onClick={() => handlePerfPreset('month')} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-medium">本月</button>
+              <button onClick={() => handlePerfPreset('all')} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-medium">全部</button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm space-y-1">
+              <p className="text-xs text-slate-400 font-medium">銷售總額</p>
+              <p className="text-2xl font-bold font-mono text-slate-800">${perfTotalAmount.toLocaleString()}</p>
+            </div>
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm space-y-1">
+              <p className="text-xs text-slate-400 font-medium">總毛利</p>
+              <p className="text-2xl font-bold font-mono text-emerald-600">+${perfTotalProfit.toLocaleString()}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🛠️ 修改銷售紀錄 Modal */}
+      {isEditModalOpen && editingRecord && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <h3 className="text-sm font-bold text-slate-800">修改銷售紀錄 ({editingRecord.orderNo})</h3>
+              <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-500 font-medium mb-1">銷貨日期</label>
+                <input
+                  type="date"
+                  value={editingRecord.date}
+                  onChange={(e) => setEditingRecord({ ...editingRecord, date: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:border-blue-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-500 font-medium mb-1">客戶姓名</label>
+                <input
+                  type="text"
+                  value={editingRecord.customerName}
+                  onChange={(e) => setEditingRecord({ ...editingRecord, customerName: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-500 font-medium mb-1">付款資訊</label>
+                <input
+                  type="text"
+                  value={editingRecord.paymentInfo}
+                  onChange={(e) => setEditingRecord({ ...editingRecord, paymentInfo: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center pt-2">
+              <button
+                onClick={() => handleDeleteRecord(editingRecord.id)}
+                className="px-3 py-2 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-xl font-bold text-xs transition"
+              >
+                刪除這筆紀錄
+              </button>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setIsEditModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-semibold"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleSaveEdit}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm"
+                >
+                  儲存修改
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 快速新增會員 Modal */}
+      {isQuickCustomerModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl space-y-4">
+            <h3 className="text-sm font-bold text-slate-800">快速建立會員</h3>
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-500 mb-1">會員姓名</label>
+                <input
+                  type="text"
+                  value={newCustName}
+                  onChange={(e) => setNewCustName(e.target.value)}
+                  placeholder="例如：王小明"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-500 mb-1">電話號碼</label>
+                <input
+                  type="text"
+                  value={newCustPhone}
+                  onChange={(e) => setNewCustPhone(e.target.value)}
+                  placeholder="例如：0912345678"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setIsQuickCustomerModalOpen(false)} className="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-xl text-xs">取消</button>
+              <button onClick={handleCreateCustomer} className="px-4 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-bold">建立並選取</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 自訂/維修項目 Modal */}
+      {isCustomModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl space-y-4">
+            <h3 className="text-sm font-bold text-slate-800">新增自訂 / 維修項目</h3>
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-500 mb-1">項目類別</label>
+                <select
+                  value={customCategory}
+                  onChange={(e) => setCustomCategory(e.target.value as any)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700"
+                >
+                  <option value="accessory">自訂配件/商品</option>
+                  <option value="repair">維修服務</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-slate-500 mb-1">項目名稱</label>
+                <input
+                  type="text"
+                  value={customName}
+                  onChange={(e) => setCustomName(e.target.value)}
+                  placeholder="例如：螢幕維修 / 特快包膜"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-500 mb-1">售價 ($)</label>
+                <input
+                  type="number"
+                  value={customPrice}
+                  onChange={(e) => setCustomPrice(e.target.value)}
+                  placeholder="0"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700 font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-500 mb-1">成本 ($，可不填)</label>
+                <input
+                  type="number"
+                  value={customCost}
+                  onChange={(e) => setCustomCost(e.target.value)}
+                  placeholder="0"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700 font-mono"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setIsCustomModalOpen(false)} className="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-xl text-xs">取消</button>
+              <button onClick={handleAddCustomItem} className="px-4 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-bold">加入購物車</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 方案選擇 Modal */}
+      {isPlanModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-xl space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <h3 className="text-sm font-bold text-slate-800">選擇電信方案</h3>
+              <button onClick={() => setIsPlanModalOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="搜尋方案名稱、代碼、電信商、金額..."
+                value={planSearch}
+                onChange={(e) => setPlanSearch(e.target.value)}
+                className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700"
+              />
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+              {filteredPlans.length === 0 ? (
+                <p className="text-center py-8 text-xs text-slate-400">目前查無方案，請確定「方案管理」已新增方案</p>
+              ) : (
+                filteredPlans.map((pl) => (
+                  <div
+                    key={pl.id}
+                    onClick={() => handleSelectPlan(pl)}
+                    className="p-3.5 border border-slate-100 rounded-xl hover:border-blue-400 hover:bg-blue-50/50 cursor-pointer transition flex justify-between items-center text-xs"
+                  >
+                    <div>
+                      <p className="font-bold text-slate-800">[{pl.carrier}] {pl.name}</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">類型：{pl.type} | 月租：${pl.monthlyFee}</p>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-emerald-600 font-mono font-bold block">+${pl.actualCommission || pl.storeCommission || 0} (傭金)</span>
+                      <span className="px-2 py-0.5 bg-blue-600 text-white rounded text-[10px] font-medium mt-1 inline-block">代入方案</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
