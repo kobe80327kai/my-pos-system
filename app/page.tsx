@@ -80,21 +80,32 @@ export default function ControlPage() {
     return [];
   });
 
-  // 商品庫存狀態（支援從 localStorage 讀取或預設清空，並可與進貨管理連動）
+  // 強化商品庫存讀取機制：涵蓋所有可能的庫存管理頁面 LocalStorage Key
   const [products, setProducts] = useState<Product[]>(() => {
     if (typeof window !== 'undefined') {
       try {
-        const keys = ['pos_products_v3', 'pos_products', 'products', 'inventory_products'];
-        for (const key of keys) {
+        const possibleKeys = [
+          'inventory_products', 'pos_products_v3', 'pos_products', 
+          'products', 'stock_products', 'new_inventory_products'
+        ];
+        for (const key of possibleKeys) {
           const saved = localStorage.getItem(key);
           if (saved) {
             const parsed = JSON.parse(saved);
-            if (Array.isArray(parsed)) return parsed;
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              return parsed.map((p: any) => ({
+                id: p.id || p.productNo || p.code || String(Math.random()),
+                name: p.name || p.productName || '未命名商品',
+                price: Number(p.price || p.sellPrice || p.retailPrice || 0),
+                cost: Number(p.cost || p.actualCost || 0),
+                stock: Number(p.stock ?? p.quantity ?? p.qty ?? 0),
+                category: p.category || '一般'
+              }));
+            }
           }
         }
       } catch (e) { console.error(e); }
     }
-    // 預設為空，若需要初始測試資料可自行補上，此處符合要求「預設那些可以都幫我清空」
     return [];
   });
 
@@ -106,9 +117,7 @@ export default function ControlPage() {
           const saved = localStorage.getItem(key);
           if (saved) {
             const parsed = JSON.parse(saved);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              return parsed;
-            }
+            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
           }
         }
       } catch (e) { console.error(e); }
@@ -150,67 +159,46 @@ export default function ControlPage() {
     return defaultPlans;
   });
 
-  // 定時自動同步商品庫存與客戶資料
+  // 定時自動同步商品庫存（確保與庫存管理頁面完美連動）
   useEffect(() => {
     const interval = setInterval(() => {
       if (typeof window !== 'undefined') {
-        // 同步商品
-        const prodKeys = ['pos_products_v3', 'pos_products', 'products', 'inventory_products'];
-        for (const key of prodKeys) {
+        const possibleKeys = [
+          'inventory_products', 'pos_products_v3', 'pos_products', 
+          'products', 'stock_products', 'new_inventory_products'
+        ];
+        for (const key of possibleKeys) {
           const saved = localStorage.getItem(key);
           if (saved) {
             try {
               const parsed = JSON.parse(saved);
               if (Array.isArray(parsed)) {
-                setProducts(parsed);
-                break;
-              }
-            } catch (e) { console.error(e); }
-          }
-        }
-
-        // 同步客戶
-        const keys = ['pos_customers_v3', 'pos_customers', 'customers', 'crm_customers'];
-        for (const key of keys) {
-          const saved = localStorage.getItem(key);
-          if (saved) {
-            try {
-              const parsed = JSON.parse(saved);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                setCustomers(parsed);
+                const formatted = parsed.map((p: any) => ({
+                  id: p.id || p.productNo || p.code || String(Math.random()),
+                  name: p.name || p.productName || '未命名商品',
+                  price: Number(p.price || p.sellPrice || p.retailPrice || 0),
+                  cost: Number(p.cost || p.actualCost || 0),
+                  stock: Number(p.stock ?? p.quantity ?? p.qty ?? 0),
+                  category: p.category || '一般'
+                }));
+                setProducts(formatted);
                 break;
               }
             } catch (e) { console.error(e); }
           }
         }
       }
-    }, 1000);
+    }, 800);
     return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('pos_customers_v3', JSON.stringify(customers));
-    }
-  }, [customers]);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
       localStorage.setItem('pos_plans_v3', JSON.stringify(plans));
-    }
-  }, [plans]);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
       localStorage.setItem('pos_sales_records_v3', JSON.stringify(salesRecords));
     }
-  }, [salesRecords]);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('pos_products_v3', JSON.stringify(products));
-    }
-  }, [products]);
+  }, [customers, plans, salesRecords]);
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [productSearch, setProductSearch] = useState('');
@@ -269,7 +257,6 @@ export default function ControlPage() {
     setCart((prev) => {
       const existing = prev.find(item => item.id === p.id && item.type === 'product');
       if (existing) {
-        // 檢查購物車數量是否大於現有庫存
         if (existing.quantity + 1 > p.stock) {
           alert(`⚠️ 提示：商品「${p.name}」庫存僅剩 ${p.stock}，無法再增加數量！`);
           return prev;
@@ -353,14 +340,13 @@ export default function ControlPage() {
   
   const totalProfit = baseProfit - totalFeeAmount;
 
-  // 結帳處理：扣除對應商品庫存並寫入紀錄
+  // 結帳處理：扣除對應商品庫存並同步更新至所有可能的儲存鍵值
   const handleCheckout = () => {
     if (cart.length === 0) {
       alert('購物車目前沒有項目！');
       return;
     }
 
-    // 再次檢查庫存是否足夠
     for (const item of cart) {
       if (item.type === 'product') {
         const targetProd = products.find(p => p.id === item.id);
@@ -371,7 +357,6 @@ export default function ControlPage() {
       }
     }
 
-    // 扣除庫存
     const updatedProducts = products.map(p => {
       const cartItem = cart.find(i => i.id === p.id && i.type === 'product');
       if (cartItem) {
@@ -379,10 +364,20 @@ export default function ControlPage() {
       }
       return p;
     });
+
     setProducts(updatedProducts);
     if (typeof window !== 'undefined') {
-      localStorage.setItem('pos_products_v3', JSON.stringify(updatedProducts));
-      localStorage.setItem('products', JSON.stringify(updatedProducts));
+      const keysToUpdate = [
+        'inventory_products', 'pos_products_v3', 'pos_products', 
+        'products', 'stock_products', 'new_inventory_products'
+      ];
+      keysToUpdate.forEach(k => {
+        if (localStorage.getItem(k)) {
+          localStorage.setItem(k, JSON.stringify(updatedProducts));
+        }
+      });
+      // 預設寫入主要鍵值
+      localStorage.setItem('inventory_products', JSON.stringify(updatedProducts));
     }
 
     const orderNo = `SD${getTodayStr().replace(/-/g, '').slice(2)}${Math.floor(100 + Math.random() * 900)}`;
@@ -521,7 +516,7 @@ export default function ControlPage() {
                 />
                 <div className="space-y-2 max-h-[300px] overflow-y-auto">
                   {filteredProducts.length === 0 ? (
-                    <p className="text-xs text-slate-400 text-center py-6">目前無商品庫存，請至進貨管理新增商品。</p>
+                    <p className="text-xs text-slate-400 text-center py-6">目前無商品庫存，請至庫存管理新增商品。</p>
                   ) : (
                     filteredProducts.map((p) => (
                       <div 
