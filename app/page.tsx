@@ -4,14 +4,13 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 
 interface Product {
-  id: string;
+  id: number;
   name: string;
-  price: number;
+  category: string;
   cost: number;
+  price: number;
   stock: number;
-  imei?: string;
-  serialNumber?: string;
-  cardNo?: string;
+  serial_numbers?: string;
   code?: string;
 }
 
@@ -35,7 +34,7 @@ interface Customer {
 }
 
 interface CartItem {
-  id: string;
+  id: string | number;
   name: string;
   price: number;
   cost: number;
@@ -66,7 +65,7 @@ interface SaleRecord {
     cost: number;
     price: number;
     quantity: number;
-    category?: 'combination' | 'phone' | 'usedPhone' | 'accessory' | 'repair';
+    category?: string;
   }[];
   totalAmount: number;
   totalCost: number;
@@ -75,16 +74,6 @@ interface SaleRecord {
 }
 
 const POS_PLANS_KEY = 'pos_plans';
-const ALL_POSSIBLE_PRODUCT_KEYS = [
-  'inventory_products',
-  'products',
-  'pos_products',
-  'stock_products',
-  'new_products',
-  'inventory',
-  'shop_products',
-  'pos_inventory_products_v1'
-];
 
 export default function Home() {
   const [currentTab, setCurrentTab] = useState<'pos' | 'salesRecord' | 'performance'>('pos');
@@ -98,93 +87,36 @@ export default function Home() {
     fetchPlans();
     fetchProducts();
     fetchCustomers();
-
-    const handleStorageChange = () => {
-      fetchProducts();
-    };
-    window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('focus', handleStorageChange);
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('focus', handleStorageChange);
-    };
   }, []);
 
-  // 全方位庫存與 Supabase 資料同步抓取
+  // 1. 直接對接與庫存頁面完全相同的 Supabase 'products' 資料表
   const fetchProducts = async () => {
-    let loadedProducts: Product[] = [];
+    try {
+      const { data, error } = await supabase
+        .from('products')
+        .select('*')
+        .order('id', { ascending: true });
 
-    // 1. 掃描所有 LocalStorage
-    if (typeof window !== 'undefined') {
-      for (const key of ALL_POSSIBLE_PRODUCT_KEYS) {
-        const saved = localStorage.getItem(key);
-        if (saved) {
-          try {
-            const parsed = JSON.parse(saved);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              const mapped = parsed.map((item: any) => ({
-                id: String(item.id || item.code || Math.random()),
-                name: item.name || item.product_name || item.title || '',
-                price: Number(item.price || item.selling_price || item.retailPrice || item.sale_price || 0),
-                cost: Number(item.cost || item.cost_price || item.purchaseCost || 0),
-                stock: Number(item.stock !== undefined ? item.stock : (item.quantity || 1)),
-                imei: item.imei || item.imei_number || '',
-                serialNumber: item.serial_number || item.sn || item.serialNo || '',
-                cardNo: item.card_no || item.iccid || item.sim_no || item.card_number || '',
-                code: item.code || item.product_code || ''
-              }));
-              loadedProducts = [...loadedProducts, ...mapped];
-            }
-          } catch (e) {}
-        }
-      }
-    }
+      if (error) throw error;
 
-    // 2. 嘗試從 Supabase 的多個可能表格抓取
-    const possibleTables = ['products', 'inventory', 'items', 'stock'];
-    for (const tableName of possibleTables) {
-      try {
-        const { data, error } = await supabase
-          .from(tableName)
-          .select('*')
-          .order('created_at', { ascending: false });
+      const formatted = (data || []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        category: p.category || p.type || '未分類',
+        cost: p.cost || 0,
+        price: p.price || 0,
+        stock: p.stock || 0,
+        serial_numbers: p.serial_numbers || '',
+        code: `PRD${String(p.id).padStart(6, '0')}`
+      }));
 
-        if (!error && data && data.length > 0) {
-          const dbMapped: Product[] = data.map((item: any) => ({
-            id: String(item.id || item.code || Math.random()),
-            name: item.name || item.product_name || item.title || '',
-            price: Number(item.price || item.selling_price || item.retailPrice || item.sale_price || 0),
-            cost: Number(item.cost || item.cost_price || item.purchaseCost || 0),
-            stock: Number(item.stock !== undefined ? item.stock : (item.quantity || 1)),
-            imei: item.imei || item.imei_number || '',
-            serialNumber: item.serial_number || item.sn || item.serialNo || '',
-            cardNo: item.card_no || item.iccid || item.sim_no || item.card_number || '',
-            code: item.code || item.product_code || ''
-          }));
-          loadedProducts = [...dbMapped, ...loadedProducts];
-          break;
-        }
-      } catch (err) {}
-    }
-
-    // 去除重複 ID
-    const uniqueMap = new Map();
-    loadedProducts.forEach(p => {
-      if (p.name) uniqueMap.set(p.id + p.name, p);
-    });
-
-    const finalProducts = Array.from(uniqueMap.values());
-    setProducts(finalProducts);
-
-    // 同步寫回標準 key
-    if (finalProducts.length > 0 && typeof window !== 'undefined') {
-      localStorage.setItem('products', JSON.stringify(finalProducts));
-      localStorage.setItem('inventory_products', JSON.stringify(finalProducts));
-      localStorage.setItem('pos_products', JSON.stringify(finalProducts));
+      setProducts(formatted);
+    } catch (err: any) {
+      console.error('銷貨頁面載入庫存失敗：', err.message);
     }
   };
 
+  // 2. 讀取方案資料
   const fetchPlans = async () => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem(POS_PLANS_KEY);
@@ -217,6 +149,7 @@ export default function Home() {
     } catch (err) {}
   };
 
+  // 3. 讀取客戶資料
   const fetchCustomers = async () => {
     try {
       const { data, error } = await supabase.from('customers').select('*').order('created_at', { ascending: false });
@@ -413,8 +346,7 @@ export default function Home() {
         commission: 0, 
         quantity: 1, 
         type: 'product',
-        imei: item.imei,
-        cardNo: item.cardNo
+        imei: item.serial_numbers ? item.serial_numbers.split(',')[0].trim() : ''
       }];
     });
   };
@@ -486,7 +418,7 @@ export default function Home() {
         customer_type: '個人貴賓',
         salesperson: '管理員',
         store: '總店',
-        items: cart.map(i => ({ name: i.name, imei: i.imei || i.cardNo || '—', cost: i.type === 'plan' ? 0 : i.cost, price: i.price, quantity: i.quantity })),
+        items: cart.map(i => ({ name: i.name, imei: i.imei || '—', cost: i.type === 'plan' ? 0 : i.cost, price: i.price, quantity: i.quantity })),
         total_amount: subtotal,
         total_cost: 0,
         profit: totalProfit,
@@ -506,9 +438,7 @@ export default function Home() {
     if (!kw) return true;
     return (p.name && p.name.toLowerCase().includes(kw)) ||
            (p.code && p.code.toLowerCase().includes(kw)) ||
-           (p.imei && p.imei.toLowerCase().includes(kw)) ||
-           (p.serialNumber && p.serialNumber.toLowerCase().includes(kw)) ||
-           (p.cardNo && p.cardNo.toLowerCase().includes(kw));
+           (p.serial_numbers && p.serial_numbers.toLowerCase().includes(kw));
   });
 
   const filteredCustomers = customers.filter(c => !customerSearch || c.name.toLowerCase().includes(customerSearch.toLowerCase()) || c.phone.includes(customerSearch));
@@ -552,23 +482,8 @@ export default function Home() {
 
               <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/60 space-y-4">
                 <div className="flex justify-between items-center">
-                  <h2 className="text-xs font-bold text-slate-700">加入商品</h2>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => {
-                        const testProd: Product = { id: `test-${Date.now()}`, name: '測試商品 (iPhone配件)', price: 990, cost: 500, stock: 10, imei: 'TEST999888' };
-                        const updated = [testProd, ...products];
-                        setProducts(updated);
-                        localStorage.setItem('products', JSON.stringify(updated));
-                        localStorage.setItem('inventory_products', JSON.stringify(updated));
-                        alert('已手動建立一筆測試商品供結帳測試！');
-                      }}
-                      className="text-xs text-emerald-600 font-semibold bg-emerald-50 px-2 py-1 rounded-lg hover:bg-emerald-100"
-                    >
-                      + 快速加入測試商品
-                    </button>
-                    <button onClick={fetchProducts} className="text-xs text-blue-600 hover:underline">🔄 重新整理庫存</button>
-                  </div>
+                  <h2 className="text-xs font-bold text-slate-700">加入商品 (即時連線庫存資料表)</h2>
+                  <button onClick={fetchProducts} className="text-xs text-blue-600 hover:underline">🔄 重新整理庫存</button>
                 </div>
 
                 <div className="relative">
@@ -577,20 +492,20 @@ export default function Home() {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="搜尋商品名稱 / 商品編號 / IMEI / 序號 / SIM卡號..."
+                    placeholder="搜尋商品名稱 / 編號 / IMEI / SIM..."
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500"
                   />
                 </div>
 
                 <div className="space-y-2 pt-2 max-h-80 overflow-y-auto">
                   {filteredProducts.length === 0 ? (
-                    <p className="text-center py-6 text-xs text-slate-400">目前庫存內無符合的商品（可點上方「快速加入測試商品」測試）</p>
+                    <p className="text-center py-6 text-xs text-slate-400">目前庫存內無符合的商品（請至庫存頁面新增）</p>
                   ) : (
                     filteredProducts.map((p) => (
                       <div key={p.id} onClick={() => addToCart(p)} className="flex justify-between items-center p-3.5 rounded-xl border border-slate-100 bg-white hover:border-blue-300 hover:shadow-sm cursor-pointer transition">
                         <div>
                           <p className="text-xs font-bold text-slate-800">{p.name}</p>
-                          <p className="text-[11px] text-slate-400 mt-0.5">庫存：{p.stock} | 成本：${p.cost} {p.imei && ` | IMEI: ${p.imei}`}</p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">庫存：{p.stock} | 成本：${p.cost} {p.serial_numbers && ` | IMEI: ${p.serial_numbers}`}</p>
                         </div>
                         <div className="flex items-center gap-3">
                           <span className="text-xs font-mono font-bold text-blue-600">${p.price}</span>
