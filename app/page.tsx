@@ -75,7 +75,7 @@ interface SaleRecord {
 }
 
 const POS_PLANS_KEY = 'pos_plans';
-const POSSIBLE_PRODUCT_KEYS = ['pos_products', 'products', 'inventory', 'store_products'];
+const POSSIBLE_PRODUCT_KEYS = ['pos_products', 'products', 'inventory', 'store_products', 'stock_items'];
 
 export default function Home() {
   const [currentTab, setCurrentTab] = useState<'pos' | 'salesRecord' | 'performance'>('pos');
@@ -91,11 +91,11 @@ export default function Home() {
     fetchCustomers();
   }, []);
 
-  // 1. 強效讀取商品庫存：完美對接多種可能的 LocalStorage Key 與 Supabase
+  // 1. 強效多重容錯讀取庫存：自動輪詢 Supabase 多個可能的表格與 LocalStorage
   const fetchProducts = async () => {
     let loadedProducts: Product[] = [];
 
-    // 優先從 LocalStorage 多個可能鍵值讀取快取
+    // 先檢查本地 LocalStorage
     if (typeof window !== 'undefined') {
       for (const key of POSSIBLE_PRODUCT_KEYS) {
         const saved = localStorage.getItem(key);
@@ -104,9 +104,9 @@ export default function Home() {
             const parsed = JSON.parse(saved);
             if (Array.isArray(parsed) && parsed.length > 0) {
               loadedProducts = parsed.map((item: any) => ({
-                id: String(item.id || Date.now() + Math.random()),
+                id: String(item.id || item.code || Math.random()),
                 name: item.name || item.product_name || item.title || '',
-                price: Number(item.price || item.selling_price || item.retailPrice || 0),
+                price: Number(item.price || item.selling_price || item.retailPrice || item.sale_price || 0),
                 cost: Number(item.cost || item.cost_price || item.purchaseCost || 0),
                 stock: Number(item.stock !== undefined ? item.stock : (item.quantity || 1)),
                 imei: item.imei || item.imei_number || '',
@@ -117,7 +117,7 @@ export default function Home() {
               break;
             }
           } catch (e) {
-            console.error(`解析本地商品資料失敗 (${key}):`, e);
+            console.error(`解析本地商品失敗 (${key}):`, e);
           }
         }
       }
@@ -127,30 +127,34 @@ export default function Home() {
       setProducts(loadedProducts);
     }
 
-    // 同步從 Supabase 抓取最新商品
-    try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .order('created_at', { ascending: false });
+    // 自動嘗試 Supabase 中可能的表格名稱
+    const possibleTables = ['products', 'inventory', 'items', 'stock'];
+    for (const tableName of possibleTables) {
+      try {
+        const { data, error } = await supabase
+          .from(tableName)
+          .select('*')
+          .order('created_at', { ascending: false });
 
-      if (data && !error && data.length > 0) {
-        const formattedProducts: Product[] = data.map((item: any) => ({
-          id: String(item.id),
-          name: item.name || item.product_name || item.title || '',
-          price: Number(item.price || item.selling_price || 0),
-          cost: Number(item.cost || item.cost_price || 0),
-          stock: Number(item.stock !== undefined ? item.stock : (item.quantity || 1)),
-          imei: item.imei || item.imei_number || '',
-          serialNumber: item.serial_number || item.sn || item.serialNo || '',
-          cardNo: item.card_no || item.iccid || item.sim_no || item.card_number || '',
-          code: item.code || item.product_code || ''
-        }));
-        setProducts(formattedProducts);
-        localStorage.setItem('pos_products', JSON.stringify(formattedProducts));
+        if (!error && data && data.length > 0) {
+          const formattedProducts: Product[] = data.map((item: any) => ({
+            id: String(item.id || item.code || Math.random()),
+            name: item.name || item.product_name || item.title || '',
+            price: Number(item.price || item.selling_price || item.retailPrice || item.sale_price || 0),
+            cost: Number(item.cost || item.cost_price || item.purchaseCost || 0),
+            stock: Number(item.stock !== undefined ? item.stock : (item.quantity || 1)),
+            imei: item.imei || item.imei_number || '',
+            serialNumber: item.serial_number || item.sn || item.serialNo || '',
+            cardNo: item.card_no || item.iccid || item.sim_no || item.card_number || '',
+            code: item.code || item.product_code || ''
+          }));
+          setProducts(formattedProducts);
+          localStorage.setItem('pos_products', JSON.stringify(formattedProducts));
+          return; // 成功抓到即結束
+        }
+      } catch (err) {
+        // 繼續嘗試下一個可能表格
       }
-    } catch (err) {
-      console.log('連線 Supabase 商品失敗，使用本地資料運作');
     }
   };
 
@@ -164,9 +168,7 @@ export default function Home() {
           if (Array.isArray(parsed) && parsed.length > 0) {
             setPlans(parsed);
           }
-        } catch (e) {
-          console.error('解析 LocalStorage pos_plans 失敗:', e);
-        }
+        } catch (e) {}
       }
     }
 
@@ -189,9 +191,7 @@ export default function Home() {
         setPlans(formattedPlans);
         localStorage.setItem(POS_PLANS_KEY, JSON.stringify(formattedPlans));
       }
-    } catch (err) {
-      console.log('連線 Supabase 方案資料失敗，使用本地資料運作');
-    }
+    } catch (err) {}
   };
 
   // 3. 動態讀取 Supabase 中的客戶清單
@@ -210,9 +210,7 @@ export default function Home() {
         }));
         setCustomers(formattedCustomers);
       }
-    } catch (err) {
-      console.error('連線 Supabase 客戶資料失敗:', err);
-    }
+    } catch (err) {}
   };
 
   const [salesRecords, setSalesRecords] = useState<SaleRecord[]>([]);
@@ -241,9 +239,7 @@ export default function Home() {
         }));
         setSalesRecords(formattedRecords);
       }
-    } catch (err) {
-      console.error('連線 Supabase 銷售紀錄失敗:', err);
-    }
+    } catch (err) {}
   };
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -576,7 +572,7 @@ export default function Home() {
     setCurrentTab('salesRecord');
   };
 
-  // 多欄位強效比對搜尋：支援「名稱」、「編號」、「IMEI」、「序號」、「SIM卡號/ICCID」
+  // 多欄位強效比對搜尋
   const filteredProducts = products.filter(p => {
     const kw = searchQuery.toLowerCase().trim();
     if (!kw) return true;
