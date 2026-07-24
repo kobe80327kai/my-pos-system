@@ -168,23 +168,41 @@ export default function Home() {
   const fetchSalesRecords = async () => {
     try {
       const { data, error } = await supabase.from('sales_records').select('*').order('created_at', { ascending: false });
-      if (data && !error && data.length > 0) {
-        setSalesRecords(data.map((item: any) => ({
-          id: item.id,
-          orderNo: item.order_no,
-          date: item.date,
-          customerName: item.customer_name,
-          customerType: item.customer_type,
-          salesperson: item.salesperson,
-          store: item.store,
-          items: typeof item.items === 'string' ? JSON.parse(item.items) : item.items,
-          totalAmount: Number(item.total_amount),
-          totalCost: Number(item.total_cost),
-          profit: Number(item.profit),
-          paymentInfo: item.payment_info
-        })));
+      if (data && !error) {
+        const parsedRecords = (data || []).map((item: any) => {
+          let rawItems = item.items;
+          if (typeof rawItems === 'string') {
+            try { rawItems = JSON.parse(rawItems); } catch (e) { rawItems = []; }
+          }
+          if (!Array.isArray(rawItems)) rawItems = [];
+
+          return {
+            id: String(item.id),
+            orderNo: item.order_no || item.orderNo || '',
+            date: item.date || getTodayStr(),
+            customerName: item.customer_name || item.customerName || '個人貴賓',
+            customerType: item.customer_type || item.customerType || '個人貴賓',
+            salesperson: item.salesperson || '管理員',
+            store: item.store || '總店',
+            items: rawItems.map((it: any) => ({
+              name: it.name || '自訂項目',
+              imei: it.imei || '—',
+              cost: Number(it.cost || 0),
+              price: Number(it.price || 0),
+              quantity: Number(it.quantity || 1),
+              category: it.category || (it.name?.includes('維修') ? '維修' : '配件')
+            })),
+            totalAmount: Number(item.total_amount || item.totalAmount || 0),
+            totalCost: Number(item.total_cost || item.totalCost || 0),
+            profit: Number(item.profit || 0),
+            paymentInfo: item.payment_info || item.paymentInfo || '現金'
+          };
+        });
+        setSalesRecords(parsedRecords);
       }
-    } catch (err) {}
+    } catch (err) {
+      console.error('讀取銷售紀錄失敗:', err);
+    }
   };
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -407,7 +425,6 @@ export default function Home() {
     }
     const priceNum = parseFloat(customPrice);
     const costNum = parseFloat(customCost) || 0;
-    // 關鍵修正：確保維修類別正確被標記為 '維修'
     const catName = customCategory === 'repair' ? '維修' : '配件';
     const itemType = customCategory === 'repair' ? 'repair' : 'custom';
 
@@ -439,6 +456,7 @@ export default function Home() {
 
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const totalProfit = cart.reduce((sum, item) => item.type === 'plan' ? sum + item.commission : sum + (item.price - item.cost) * item.quantity, 0);
+  const totalCostVal = cart.reduce((sum, item) => sum + (item.type === 'plan' ? 0 : item.cost * item.quantity), 0);
 
   const addPaymentRow = () => setPayments([...payments, { id: Date.now().toString(), method: '刷卡分期', installments: '3' }]);
   const removePaymentRow = (id: string) => setPayments(payments.filter(p => p.id !== id));
@@ -464,29 +482,30 @@ export default function Home() {
     const orderNo = `SD${nowStr.replace(/-/g, '').slice(2)}${Math.floor(100 + Math.random() * 900)}`;
     const recordId = `sr-${Date.now()}`;
 
-    try {
-      const { error: saleError } = await supabase.from('sales_records').insert([{
-        id: recordId,
-        order_no: orderNo,
-        date: nowStr,
-        customer_name: customerSearch.split('(')[0].trim() || '個人貴賓',
-        customer_type: '個人貴賓',
-        salesperson: '管理員',
-        store: '總店',
-        items: cart.map(i => ({ 
-          name: i.name, 
-          imei: i.imei || '—', 
-          cost: i.type === 'plan' ? 0 : i.cost, 
-          price: i.price, 
-          quantity: i.quantity,
-          category: i.category || (i.type === 'plan' ? '組合商品(門號)' : i.type === 'repair' ? '維修' : '配件')
-        })),
-        total_amount: subtotal,
-        total_cost: cart.reduce((s, i) => s + (i.type === 'plan' ? 0 : i.cost * i.quantity), 0),
-        profit: totalProfit,
-        payment_info: payments.map(p => p.method === '刷卡分期' ? `刷卡分期(${p.installments}期)` : p.method).join(', ')
-      }]);
+    const newSalePayload = {
+      id: recordId,
+      order_no: orderNo,
+      date: nowStr,
+      customer_name: customerSearch.split('(')[0].trim() || '個人貴賓',
+      customer_type: '個人貴賓',
+      salesperson: '管理員',
+      store: '總店',
+      items: cart.map(i => ({ 
+        name: i.name, 
+        imei: i.imei || '—', 
+        cost: i.type === 'plan' ? 0 : i.cost, 
+        price: i.price, 
+        quantity: i.quantity,
+        category: i.category || (i.type === 'plan' ? '組合商品(門號)' : i.type === 'repair' ? '維修' : '配件')
+      })),
+      total_amount: subtotal,
+      total_cost: totalCostVal,
+      profit: totalProfit,
+      payment_info: payments.map(p => p.method === '刷卡分期' ? `刷卡分期(${p.installments}期)` : p.method).join(', ')
+    };
 
+    try {
+      const { error: saleError } = await supabase.from('sales_records').insert([newSalePayload]);
       if (saleError) throw saleError;
 
       for (const item of cart) {
@@ -501,7 +520,6 @@ export default function Home() {
           }
         }
       }
-
     } catch (e: any) {
       alert('結帳過程發生錯誤：' + e.message);
       return;
