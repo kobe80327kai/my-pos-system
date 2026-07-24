@@ -295,7 +295,7 @@ export default function Home() {
   const perfTotalAmount = filteredPerfRecords.reduce((sum, r) => sum + r.totalAmount, 0);
   const perfTotalProfit = filteredPerfRecords.reduce((sum, r) => sum + r.profit, 0);
 
-  // 計算左側銷售類別統計數據
+  // 精準分類與加總統計
   const categoryStats = {
     '組合商品(門號)': { count: 0, amount: 0 },
     '手機': { count: 0, amount: 0 },
@@ -306,18 +306,21 @@ export default function Home() {
 
   filteredPerfRecords.forEach(r => {
     r.items.forEach(it => {
-      let cat = it.category || '配件';
-      if (cat.includes('組') || cat.includes('門號') || selectedPlan) {
+      let cat = it.category || '';
+      const nameLower = (it.name || '').toLowerCase();
+      
+      if (cat.includes('組') || cat.includes('門號') || nameLower.includes('方案') || nameLower.includes('門號')) {
         cat = '組合商品(門號)';
-      } else if (cat.includes('中古')) {
+      } else if (cat.includes('中古') || nameLower.includes('中古')) {
         cat = '中古機';
-      } else if (cat.includes('手機')) {
+      } else if (cat.includes('手機') || nameLower.includes('手機') || nameLower.includes('iphone') || nameLower.includes('samsung')) {
         cat = '手機';
-      } else if (cat.includes('維修')) {
+      } else if (cat.includes('維修') || nameLower.includes('維修') || nameLower.includes('換螢幕') || nameLower.includes('修')) {
         cat = '維修';
       } else {
         cat = '配件';
       }
+
       if (categoryStats[cat as keyof typeof categoryStats]) {
         categoryStats[cat as keyof typeof categoryStats].count += it.quantity;
         categoryStats[cat as keyof typeof categoryStats].amount += (it.price * it.quantity);
