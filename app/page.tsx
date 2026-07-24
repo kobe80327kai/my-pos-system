@@ -41,6 +41,7 @@ interface CartItem {
   commission: number;
   quantity: number;
   type: 'product' | 'plan' | 'custom' | 'repair';
+  category?: string;
   imei?: string;
   cardNo?: string;
 }
@@ -51,6 +52,15 @@ interface PaymentRow {
   installments: string;
 }
 
+interface SaleItemDetail {
+  name: string;
+  imei: string;
+  cost: number;
+  price: number;
+  quantity: number;
+  category?: string;
+}
+
 interface SaleRecord {
   id: string;
   orderNo: string;
@@ -59,14 +69,7 @@ interface SaleRecord {
   customerType: string;
   salesperson: string;
   store: string;
-  items: {
-    name: string;
-    imei: string;
-    cost: number;
-    price: number;
-    quantity: number;
-    category?: string;
-  }[];
+  items: SaleItemDetail[];
   totalAmount: number;
   totalCost: number;
   profit: number;
@@ -101,7 +104,7 @@ export default function Home() {
       const formatted = (data || []).map((p: any) => ({
         id: p.id,
         name: p.name,
-        category: p.category || p.type || '未分類',
+        category: p.category || p.type || '配件',
         cost: p.cost || 0,
         price: p.price || 0,
         stock: p.stock || 0,
@@ -292,6 +295,36 @@ export default function Home() {
   const perfTotalAmount = filteredPerfRecords.reduce((sum, r) => sum + r.totalAmount, 0);
   const perfTotalProfit = filteredPerfRecords.reduce((sum, r) => sum + r.profit, 0);
 
+  // 計算左側銷售類別統計數據
+  const categoryStats = {
+    '組合商品(門號)': { count: 0, amount: 0 },
+    '手機': { count: 0, amount: 0 },
+    '中古機': { count: 0, amount: 0 },
+    '配件': { count: 0, amount: 0 },
+    '維修': { count: 0, amount: 0 },
+  };
+
+  filteredPerfRecords.forEach(r => {
+    r.items.forEach(it => {
+      let cat = it.category || '配件';
+      if (cat.includes('組') || cat.includes('門號') || selectedPlan) {
+        cat = '組合商品(門號)';
+      } else if (cat.includes('中古')) {
+        cat = '中古機';
+      } else if (cat.includes('手機')) {
+        cat = '手機';
+      } else if (cat.includes('維修')) {
+        cat = '維修';
+      } else {
+        cat = '配件';
+      }
+      if (categoryStats[cat as keyof typeof categoryStats]) {
+        categoryStats[cat as keyof typeof categoryStats].count += it.quantity;
+        categoryStats[cat as keyof typeof categoryStats].amount += (it.price * it.quantity);
+      }
+    });
+  });
+
   const handleDeleteRecord = async (id: string) => {
     if (confirm('確定要刪除這筆銷售紀錄嗎？')) {
       try { await supabase.from('sales_records').delete().eq('id', id); } catch (e) {}
@@ -343,6 +376,7 @@ export default function Home() {
         commission: 0, 
         quantity: 1, 
         type: 'product',
+        category: item.category,
         imei: item.serial_numbers ? item.serial_numbers.split(',')[0].trim() : ''
       }];
     });
@@ -359,6 +393,7 @@ export default function Home() {
       commission: comm,
       quantity: 1,
       type: 'plan',
+      category: '組合商品(門號)',
     }]);
     setIsPlanModalOpen(false);
   };
@@ -369,6 +404,7 @@ export default function Home() {
     }
     const priceNum = parseFloat(customPrice);
     const costNum = parseFloat(customCost) || 0;
+    const catName = customCategory === 'repair' ? '維修' : '配件';
     setCart((prev) => [...prev, {
       id: `custom-${Date.now()}`,
       name: customName,
@@ -377,6 +413,7 @@ export default function Home() {
       commission: 0,
       quantity: 1,
       type: customCategory === 'repair' ? 'repair' : 'custom',
+      category: catName,
     }]);
     setCustomName(''); setCustomPrice(''); setCustomCost('');
     setIsCustomModalOpen(false);
@@ -430,9 +467,16 @@ export default function Home() {
         customer_type: '個人貴賓',
         salesperson: '管理員',
         store: '總店',
-        items: cart.map(i => ({ name: i.name, imei: i.imei || '—', cost: i.type === 'plan' ? 0 : i.cost, price: i.price, quantity: i.quantity })),
+        items: cart.map(i => ({ 
+          name: i.name, 
+          imei: i.imei || '—', 
+          cost: i.type === 'plan' ? 0 : i.cost, 
+          price: i.price, 
+          quantity: i.quantity,
+          category: i.category || (i.type === 'plan' ? '組合商品(門號)' : i.type === 'repair' ? '維修' : '配件')
+        })),
         total_amount: subtotal,
-        total_cost: 0,
+        total_cost: cart.reduce((s, i) => s + (i.type === 'plan' ? 0 : i.cost * i.quantity), 0),
         profit: totalProfit,
         payment_info: payments.map(p => p.method === '刷卡分期' ? `刷卡分期(${p.installments}期)` : p.method).join(', ')
       }]);
@@ -536,7 +580,7 @@ export default function Home() {
                     filteredProducts.map((p) => (
                       <div key={p.id} onClick={() => addToCart(p)} className="flex justify-between items-center p-3.5 rounded-xl border border-slate-100 bg-white hover:border-blue-300 hover:shadow-sm cursor-pointer transition">
                         <div>
-                          <p className="text-xs font-bold text-slate-800">{p.name}</p>
+                          <p className="text-xs font-bold text-slate-800">{p.name} <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded ml-1">{p.category}</span></p>
                           <p className="text-[11px] text-slate-400 mt-0.5">庫存：{p.stock} | 成本：${p.cost} {p.serial_numbers && ` | IMEI: ${p.serial_numbers}`}</p>
                         </div>
                         <div className="flex items-center gap-3">
@@ -743,7 +787,7 @@ export default function Home() {
                         <p className="font-bold text-slate-700 mb-1">銷售明細：</p>
                         {rec.items.map((it, idx) => (
                           <div key={idx} className="flex justify-between text-slate-600 font-mono text-[11px]">
-                            <span>{it.name} x {it.quantity}</span>
+                            <span>{it.name} [{it.category || '配件'}] x {it.quantity}</span>
                             <span>${(it.price * it.quantity).toLocaleString()}</span>
                           </div>
                         ))}
@@ -757,7 +801,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* 業績報表頁面 (已完全依照您提供的圖片與需求改版) */}
+      {/* 業績報表頁面 */}
       {currentTab === 'performance' && (
         <div className="p-8 space-y-6">
           <div>
@@ -765,7 +809,6 @@ export default function Home() {
             <p className="text-xs text-slate-400 mt-0.5">全店銷貨業績分析</p>
           </div>
 
-          {/* 頂部篩選控制列 */}
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200/60 flex flex-wrap items-center justify-between gap-4 text-xs">
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex items-center gap-1.5">
@@ -785,7 +828,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* 上方 2 個總計卡片 */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div className="bg-emerald-50/40 p-6 rounded-2xl border border-emerald-100 shadow-sm space-y-1">
               <p className="text-xs text-slate-400 font-semibold">總銷售金額</p>
@@ -797,36 +839,20 @@ export default function Home() {
             </div>
           </div>
 
-          {/* 下方左右雙欄版面 */}
           <div className="grid grid-cols-12 gap-6 items-start">
-            {/* 左側：銷售類別統計 */}
+            {/* 左側：銷售類別動態統計 */}
             <div className="col-span-12 lg:col-span-3 bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5 space-y-4">
               <div className="flex justify-between items-center border-b border-slate-100 pb-3">
                 <h3 className="text-xs font-bold text-slate-800">銷售類別</h3>
                 <span className="text-slate-400 text-xs">⚙️</span>
               </div>
               <div className="space-y-3 text-xs">
-                <div className="flex justify-between items-center pb-2 border-b border-slate-50">
-                  <span className="text-slate-600 font-medium">組合商品(門號)</span>
-                  <span className="text-slate-400 font-mono">0筆 $0</span>
-                </div>
-                <div className="flex justify-between items-center pb-2 border-b border-slate-50">
-                  <span className="text-slate-600 font-medium">手機</span>
-                  <span className="text-slate-400 font-mono">0筆 $0</span>
-                </div>
-                <div className="flex justify-between items-center pb-2 border-b border-slate-50">
-                  <span className="text-slate-600 font-medium">中古機</span>
-                  <span className="text-slate-400 font-mono">0筆 $0</span>
-                </div>
-                <div className="flex justify-between items-center pb-2 border-b border-slate-50">
-                  <span className="text-slate-600 font-medium">配件</span>
-                  <span className="text-slate-400 font-mono">0筆 $0</span>
-                </div>
-                <div className="flex justify-between items-center pb-2">
-                  <span className="text-slate-600 font-medium">維修</span>
-                  <span className="text-slate-400 font-mono">0筆 $0</span>
-                </div>
-                <div className="pt-4 text-center text-slate-300 text-[11px]">無資料</div>
+                {Object.entries(categoryStats).map(([catName, stat]) => (
+                  <div key={catName} className="flex justify-between items-center pb-2 border-b border-slate-50 last:border-b-0">
+                    <span className="text-slate-600 font-medium">{catName}</span>
+                    <span className="text-slate-500 font-mono">{stat.count}筆 ${stat.amount.toLocaleString()}</span>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -865,7 +891,7 @@ export default function Home() {
                             <td className="py-3.5 px-5 font-mono text-slate-500">{r.date}</td>
                             <td className="py-3.5 px-5 text-slate-600">{r.salesperson}</td>
                             <td className="py-3.5 px-5 text-slate-800 font-medium">{r.customerName}</td>
-                            <td className="py-3.5 px-5 text-slate-400">—</td>
+                            <td className="py-3.5 px-5 text-slate-400">{r.items.some(i => i.category?.includes('組合')) ? '有' : '—'}</td>
                             <td className="py-3.5 px-5 font-mono font-bold text-slate-800">${r.totalAmount.toLocaleString()}</td>
                             <td className="py-3.5 px-5 font-mono text-slate-400">$0</td>
                             <td className="py-3.5 px-5 font-mono font-bold text-emerald-600">+${r.profit.toLocaleString()}</td>
@@ -889,7 +915,6 @@ export default function Home() {
                     <button className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-sm transition">更新圖表</button>
                   </div>
 
-                  {/* 模擬長條圖區塊 */}
                   <div className="h-64 border-b border-slate-200 flex items-end justify-around px-8 pb-4 bg-slate-50/50 rounded-xl relative">
                     <div className="flex flex-col items-center gap-2">
                       <span className="font-mono font-bold text-blue-600">${perfTotalAmount.toLocaleString()}</span>
