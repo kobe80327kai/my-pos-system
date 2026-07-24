@@ -80,23 +80,22 @@ export default function ControlPage() {
     return [];
   });
 
-  // 核心修復：強制全面掃描所有常見的庫存/商品 Key，確保能抓到您在「新品庫存管理」新增的真實資料
+  // 核心修復：全面掃描所有可能的 LocalStorage 鍵名，確保抓到您在「新品庫存管理」建立的真實品項與正確數量
   const loadInventoryProducts = (): Product[] => {
     if (typeof window === 'undefined') return [];
     
-    // 列出所有可能儲存商品庫存的 Key 優先順序
     const possibleKeys = [
-      'inventory_products', 
-      'products', 
-      'pos_products', 
-      'stock_products', 
+      'inventory_products',
+      'products',
+      'pos_products',
+      'stock_products',
       'new_products',
-      'shop_products'
+      'shop_inventory',
+      'items'
     ];
 
     let rawList: any[] = [];
 
-    // 1. 先從指定的常見 Key 找
     for (const key of possibleKeys) {
       const data = localStorage.getItem(key);
       if (data) {
@@ -110,11 +109,11 @@ export default function ControlPage() {
       }
     }
 
-    // 2. 如果指定 Key 找不到，全域掃描任何含有 product/inventory/stock 的 key
+    // 若指定清單沒抓到，全域搜尋含有 product / stock / inventory 的 key
     if (rawList.length === 0) {
       const allKeys = Object.keys(localStorage);
       for (const k of allKeys) {
-        if (k.toLowerCase().includes('product') || k.toLowerCase().includes('inventory') || k.toLowerCase().includes('stock')) {
+        if (k.toLowerCase().includes('product') || k.toLowerCase().includes('inventory') || k.toLowerCase().includes('stock') || k.toLowerCase().includes('item')) {
           const val = localStorage.getItem(k);
           if (val) {
             try {
@@ -129,14 +128,13 @@ export default function ControlPage() {
       }
     }
 
-    // 若真的完全找不到，回傳預設保貼
     if (rawList.length === 0) {
       return [
-        { id: 'PRD000015', name: '保貼', price: 150, cost: 30, stock: 5, category: '配件' }
+        { id: 'PRD000015', name: '保貼', price: 150, cost: 30, stock: 1, category: '配件' },
+        { id: 'PRD000016', name: '行動電源', price: 500, cost: 200, stock: 1, category: '配件' }
       ];
     }
 
-    // 標準化欄位對應（相容各種命名方式如 sellPrice, quantity 等）
     return rawList.map((p: any) => ({
       id: p.id || p.productNo || p.code || String(Math.random()),
       name: p.name || p.productName || '未命名商品',
@@ -199,12 +197,12 @@ export default function ControlPage() {
     return defaultPlans;
   });
 
-  // 即時監聽 localStorage 變動，確保在庫存頁面新增或修改後，這裡一秒內自動同步數量
+  // 即時監聽更新，確保庫存管理頁面一有變動，這裡立刻同步
   useEffect(() => {
     const interval = setInterval(() => {
       const latest = loadInventoryProducts();
       setProducts(latest);
-    }, 1000);
+    }, 800);
     return () => clearInterval(interval);
   }, []);
 
@@ -381,7 +379,7 @@ export default function ControlPage() {
 
     setProducts(updatedProducts);
     if (typeof window !== 'undefined') {
-      // 同步寫入所有可能的庫存 Key 確保兩邊同步
+      // 同步寫入所有常見的庫存 Key 確保兩邊一致
       localStorage.setItem('inventory_products', JSON.stringify(updatedProducts));
       localStorage.setItem('products', JSON.stringify(updatedProducts));
       localStorage.setItem('pos_products', JSON.stringify(updatedProducts));
