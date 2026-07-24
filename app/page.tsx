@@ -70,13 +70,14 @@ interface SaleRecord {
 export default function Home() {
   const [currentTab, setCurrentTab] = useState<'pos' | 'salesRecord' | 'performance'>('pos');
 
-  const products: Product[] = [
+  // 動態管理商品庫存列表 (加入刪除功能)
+  const [products, setProducts] = useState<Product[]>([
     { id: 'p1', name: '滿版保貼', price: 200, cost: 50, stock: 10 },
     { id: 'p2', name: 'AIR6皮套', price: 200, cost: 70, stock: 8 },
     { id: 'p3', name: 'iPhone 15 128G', price: 25900, cost: 23000, stock: 3 },
-  ];
+  ]);
 
-  // 動態讀取 Supabase 中的方案清單
+  // 動態讀取 Supabase 中的方案清單 (預設無靜態假資料)
   const [plans, setPlans] = useState<Plan[]>([]);
 
   const fetchPlans = async () => {
@@ -331,6 +332,14 @@ export default function Home() {
       setIsEditModalOpen(false);
       setEditingRecord(null);
       alert('刪除成功！');
+    }
+  };
+
+  // 手動刪除加入商品的處理函數
+  const handleDeleteProduct = (productId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // 防止觸發加入購物車
+    if (confirm('確定要從可加入商品列表中移除此商品嗎？')) {
+      setProducts(prev => prev.filter(p => p.id !== productId));
     }
   };
 
@@ -608,6 +617,13 @@ export default function Home() {
                       </div>
                       <div className="flex items-center gap-3">
                         <span className="text-xs font-mono font-bold text-blue-600">${p.price}</span>
+                        <button
+                          onClick={(e) => handleDeleteProduct(p.id, e)}
+                          className="px-2 py-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded text-[11px] transition"
+                          title="移除此商品"
+                        >
+                          ✕ 刪除
+                        </button>
                         <span className="px-2.5 py-1 bg-blue-50 text-blue-600 text-[11px] rounded-lg font-medium">+ 加入</span>
                       </div>
                     </div>
@@ -1022,7 +1038,6 @@ export default function Home() {
             </div>
 
             <div className="space-y-3 text-xs">
-              {/* ✨ 補上銷貨日期欄位 */}
               <div>
                 <label className="block text-slate-500 font-medium mb-1">銷貨日期</label>
                 <input
@@ -1193,7 +1208,7 @@ export default function Home() {
 
             <div className="flex-1 overflow-y-auto space-y-2 pr-1">
               {filteredPlans.length === 0 ? (
-                <p className="text-center py-8 text-xs text-slate-400">找不到符合的方案</p>
+                <p className="text-center py-8 text-xs text-slate-400">目前查無方案，請至「方案管理」新增方案</p>
               ) : (
                 filteredPlans.map((pl) => (
                   <div
