@@ -80,7 +80,7 @@ export default function ControlPage() {
     return [];
   });
 
-  // 核心修復：全面掃描所有可能的 LocalStorage 鍵名，確保抓到您在「新品庫存管理」建立的真實品項與正確數量
+  // 核心：掃描所有可能的 LocalStorage 鍵名，確保新舊商品全部同步抓到
   const loadInventoryProducts = (): Product[] => {
     if (typeof window === 'undefined') return [];
     
@@ -91,7 +91,8 @@ export default function ControlPage() {
       'stock_products',
       'new_products',
       'shop_inventory',
-      'items'
+      'items',
+      'warehouse_products'
     ];
 
     let rawList: any[] = [];
@@ -109,11 +110,12 @@ export default function ControlPage() {
       }
     }
 
-    // 若指定清單沒抓到，全域搜尋含有 product / stock / inventory 的 key
+    // 若指定清單沒抓到，全面掃描 LocalStorage 中含有關鍵字的 key
     if (rawList.length === 0) {
       const allKeys = Object.keys(localStorage);
       for (const k of allKeys) {
-        if (k.toLowerCase().includes('product') || k.toLowerCase().includes('inventory') || k.toLowerCase().includes('stock') || k.toLowerCase().includes('item')) {
+        const lowerK = k.toLowerCase();
+        if (lowerK.includes('product') || lowerK.includes('inventory') || lowerK.includes('stock') || lowerK.includes('item') || lowerK.includes('warehouse')) {
           const val = localStorage.getItem(k);
           if (val) {
             try {
@@ -197,12 +199,12 @@ export default function ControlPage() {
     return defaultPlans;
   });
 
-  // 即時監聽更新，確保庫存管理頁面一有變動，這裡立刻同步
+  // 每 0.5 秒自動對齊所有庫存源，只要你在其他頁面新增商品，這裡馬上同步
   useEffect(() => {
     const interval = setInterval(() => {
       const latest = loadInventoryProducts();
       setProducts(latest);
-    }, 800);
+    }, 500);
     return () => clearInterval(interval);
   }, []);
 
@@ -379,10 +381,11 @@ export default function ControlPage() {
 
     setProducts(updatedProducts);
     if (typeof window !== 'undefined') {
-      // 同步寫入所有常見的庫存 Key 確保兩邊一致
+      // 同時寫入所有可能的庫存 Key，確保所有頁面都能同步扣除庫存
       localStorage.setItem('inventory_products', JSON.stringify(updatedProducts));
       localStorage.setItem('products', JSON.stringify(updatedProducts));
       localStorage.setItem('pos_products', JSON.stringify(updatedProducts));
+      localStorage.setItem('stock_products', JSON.stringify(updatedProducts));
     }
 
     const orderNo = `SD${getTodayStr().replace(/-/g, '').slice(2)}${Math.floor(100 + Math.random() * 900)}`;
