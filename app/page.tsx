@@ -89,7 +89,6 @@ export default function Home() {
     fetchCustomers();
   }, []);
 
-  // 1. 直接對接與庫存頁面完全相同的 Supabase 'products' 資料表
   const fetchProducts = async () => {
     try {
       const { data, error } = await supabase
@@ -116,7 +115,6 @@ export default function Home() {
     }
   };
 
-  // 2. 讀取方案資料
   const fetchPlans = async () => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem(POS_PLANS_KEY);
@@ -149,7 +147,6 @@ export default function Home() {
     } catch (err) {}
   };
 
-  // 3. 讀取客戶資料
   const fetchCustomers = async () => {
     try {
       const { data, error } = await supabase.from('customers').select('*').order('created_at', { ascending: false });
@@ -403,14 +400,32 @@ export default function Home() {
   const addPaymentRow = () => setPayments([...payments, { id: Date.now().toString(), method: '刷卡分期', installments: '3' }]);
   const removePaymentRow = (id: string) => setPayments(payments.filter(p => p.id !== id));
 
+  // --- 關鍵修改：結帳時檢查庫存，不足時提示並阻擋，成功後自動扣減庫存 ---
   const handleCheckout = async () => {
     if (cart.length === 0) { alert('購物車是空的！'); return; }
+
+    // 1. 檢查購物車中的實體商品庫存是否足夠
+    for (const item of cart) {
+      if (item.type === 'product') {
+        const targetProd = products.find(p => p.id === item.id);
+        if (!targetProd) {
+          alert(`⚠️ 錯誤：找不到商品「${item.name}」的庫存紀錄！`);
+          return;
+        }
+        if (targetProd.stock <= 0 || targetProd.stock < item.quantity) {
+          alert(`🚫 庫存不足警告：\n商品「${targetProd.name}」目前庫存僅剩 ${targetProd.stock} 件，無法結帳！`);
+          return; // 直接中斷，無法結帳
+        }
+      }
+    }
+
     const nowStr = getTodayStr();
     const orderNo = `SD${nowStr.replace(/-/g, '').slice(2)}${Math.floor(100 + Math.random() * 900)}`;
     const recordId = `sr-${Date.now()}`;
 
     try {
-      await supabase.from('sales_records').insert([{
+      // 2. 寫入銷售紀錄
+      const { error: saleError } = await supabase.from('sales_records').insert([{
         id: recordId,
         order_no: orderNo,
         date: nowStr,
@@ -424,11 +439,32 @@ export default function Home() {
         profit: totalProfit,
         payment_info: payments.map(p => p.method === '刷卡分期' ? `刷卡分期(${p.installments}期)` : p.method).join(', ')
       }]);
-    } catch (e) {}
+
+      if (saleError) throw saleError;
+
+      // 3. 自動扣減 Supabase 資料庫中的商品庫存
+      for (const item of cart) {
+        if (item.type === 'product') {
+          const targetProd = products.find(p => p.id === item.id);
+          if (targetProd) {
+            const newStock = Math.max(0, targetProd.stock - item.quantity);
+            await supabase
+              .from('products')
+              .update({ stock: newStock })
+              .eq('id', targetProd.id);
+          }
+        }
+      }
+
+    } catch (e: any) {
+      alert('結帳過程發生錯誤：' + e.message);
+      return;
+    }
 
     await fetchSalesRecords();
+    await fetchProducts(); // 重新同步最新庫存
     setExpandedRowId(recordId);
-    alert(`結帳成功！單號：${orderNo}`);
+    alert(`結帳成功！單號：${orderNo}，庫存已自動扣減。`);
     setCart([]); setSelectedPlan(null);
     setCurrentTab('salesRecord');
   };
