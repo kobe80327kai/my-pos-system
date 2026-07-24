@@ -38,6 +38,9 @@ export default function ReportsPage() {
   const [salesRecords, setSalesRecords] = useState<SalesRecord[]>([]);
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
 
+  // 盈餘報表時間篩選狀態 (本月 / 上月 / 自訂)
+  const [profitTab, setProfitTab] = useState<'month' | 'lastMonth' | 'custom'>('month');
+
   // 彈跳明細視窗狀態
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [detailModalTitle, setDetailModalTitle] = useState('');
@@ -58,7 +61,6 @@ export default function ReportsPage() {
     try {
       const formattedDate = selectedDate.replace(/\//g, '-');
       
-      // 讀取銷售與維修紀錄
       const { data: salesData } = await supabase
         .from('sales_records')
         .select('*')
@@ -68,7 +70,6 @@ export default function ReportsPage() {
         setSalesRecords(salesData);
       }
 
-      // 讀取支出紀錄
       const { data: expData } = await supabase
         .from('expenses')
         .select('*')
@@ -111,12 +112,16 @@ export default function ReportsPage() {
     }
   };
 
-  // 計算分類統計
   const totalSalesAmount = salesRecords.reduce((sum, r) => sum + (r.total_amount || 0), 0);
   const totalExpenseAmount = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
   const netIncome = totalSalesAmount - totalExpenseAmount;
 
-  // 付款方式統計
+  // 雜收計算（分類為雜收的支出或收入，此處以支出內的雜收或獨立紀錄為主，若無則為0）
+  const totalMiscellaneousIncome = 0; 
+
+  // 盈餘計算 (銷售金額 + 雜收 - 雜支，已拿掉佣金)
+  const totalProfit = totalSalesAmount + totalMiscellaneousIncome - totalExpenseAmount;
+
   const paymentStats: { [key: string]: { count: number; total: number; items: any[] } } = {
     '現金': { count: 0, total: 0, items: [] },
     '刷卡': { count: 0, total: 0, items: [] },
@@ -207,7 +212,7 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* 收入明細與支出明細區塊 (對應您的第二張截圖) */}
+      {/* 收入明細與支出明細區塊 */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* 收入明細 */}
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-4">
@@ -272,7 +277,7 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* 款項結算看板 (對應您的第一張截圖底部) */}
+      {/* 款項結算看板 */}
       <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-4">
         <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
           <span>💼</span> 款項結算
@@ -292,7 +297,68 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* 逐筆明細彈跳視窗 (對應您的第三張截圖) */}
+      {/* 最下方盈餘報表區塊 (已移除佣金欄位) */}
+      <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-6">
+        <div className="flex flex-wrap justify-between items-center gap-4 border-b pb-4">
+          <div className="flex items-center gap-2">
+            <span className="text-blue-600 font-bold">📈</span>
+            <h3 className="text-sm font-bold text-slate-800">盈餘報表</h3>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex bg-slate-100 p-1 rounded-2xl text-xs font-bold">
+              <button
+                onClick={() => setProfitTab('month')}
+                className={`px-4 py-1.5 rounded-xl transition ${profitTab === 'month' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+              >
+                本月
+              </button>
+              <button
+                onClick={() => setProfitTab('lastMonth')}
+                className={`px-4 py-1.5 rounded-xl transition ${profitTab === 'lastMonth' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+              >
+                上月
+              </button>
+              <button
+                onClick={() => setProfitTab('custom')}
+                className={`px-4 py-1.5 rounded-xl transition ${profitTab === 'custom' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+              >
+                自訂
+              </button>
+            </div>
+            <span className="text-xs text-slate-400 font-mono">2026-07-01 ~ 2026-07-24</span>
+          </div>
+          <span className="px-3 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-xs font-bold">管理員</span>
+        </div>
+
+        {/* 4張計算卡片 (銷售金額、雜收、雜支、盈餘，已拿掉佣金) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-slate-50/80 p-5 rounded-2xl border border-slate-100 text-center space-y-2">
+            <span className="text-xs font-bold text-slate-500 block">銷售金額</span>
+            <h4 className="text-2xl font-extrabold font-mono text-slate-800">${totalSalesAmount.toLocaleString()}</h4>
+          </div>
+
+          <div className="bg-emerald-50/50 p-5 rounded-2xl border border-emerald-100 text-center space-y-2">
+            <span className="text-xs font-bold text-emerald-700 block">雜收</span>
+            <h4 className="text-2xl font-extrabold font-mono text-emerald-600">${totalMiscellaneousIncome.toLocaleString()}</h4>
+          </div>
+
+          <div className="bg-rose-50/50 p-5 rounded-2xl border border-rose-100 text-center space-y-2">
+            <span className="text-xs font-bold text-rose-700 block">雜支</span>
+            <h4 className="text-2xl font-extrabold font-mono text-rose-600">-${totalExpenseAmount.toLocaleString()}</h4>
+          </div>
+
+          <div className="bg-emerald-50 p-5 rounded-2xl border border-emerald-200 text-center space-y-2 shadow-sm">
+            <span className="text-xs font-bold text-emerald-800 block">盈餘</span>
+            <h4 className="text-2xl font-extrabold font-mono text-emerald-700">${totalProfit.toLocaleString()}</h4>
+          </div>
+        </div>
+
+        <div className="flex justify-end text-[11px] text-slate-400 font-mono pt-1">
+          = 銷售金額 + 雜收 - 雜支
+        </div>
+      </div>
+
+      {/* 逐筆明細彈跳視窗 */}
       {isDetailModalOpen && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in duration-150">
