@@ -70,16 +70,49 @@ interface SaleRecord {
 export default function Home() {
   const [currentTab, setCurrentTab] = useState<'pos' | 'salesRecord' | 'performance'>('pos');
 
-  // 動態管理商品庫存列表 (加入刪除功能)
-  const [products, setProducts] = useState<Product[]>([
-    { id: 'p1', name: '滿版保貼', price: 200, cost: 50, stock: 10 },
-    { id: 'p2', name: 'AIR6皮套', price: 200, cost: 70, stock: 8 },
-    { id: 'p3', name: 'iPhone 15 128G', price: 25900, cost: 23000, stock: 3 },
-  ]);
-
-  // 動態讀取 Supabase 中的方案清單 (預設無靜態假資料)
+  // 清空寫死商品，改為向 Supabase 動態撈取庫存
+  const [products, setProducts] = useState<Product[]>([]);
+  // 清空寫死方案，動態讀取 Supabase 方案
   const [plans, setPlans] = useState<Plan[]>([]);
+  // 清空寫死客戶，動態讀取 Supabase 客戶資料
+  const [customers, setCustomers] = useState<Customer[]>([]);
 
+  useEffect(() => {
+    fetchSalesRecords();
+    fetchPlans();
+    fetchProducts();
+    fetchCustomers();
+  }, []);
+
+  // 1. 動態讀取 Supabase 新品庫存商品
+  const fetchProducts = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('products')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('讀取商品失敗:', error);
+        return;
+      }
+
+      if (data) {
+        const formattedProducts: Product[] = data.map((item: any) => ({
+          id: item.id.toString(),
+          name: item.name || '',
+          price: Number(item.price || 0),
+          cost: Number(item.cost || 0),
+          stock: Number(item.stock || 0)
+        }));
+        setProducts(formattedProducts);
+      }
+    } catch (err) {
+      console.error('連線 Supabase 商品資料失敗:', err);
+    }
+  };
+
+  // 2. 動態讀取 Supabase 中的方案清單
   const fetchPlans = async () => {
     try {
       const { data, error } = await supabase
@@ -99,8 +132,8 @@ export default function Home() {
           name: item.name || '',
           telecom: item.telecom || '遠傳電信',
           type: item.type || '攜碼',
-          monthlyFee: Number(item.monthly_fee || 0),
-          commission: Number(item.actual_commission || item.store_commission || 0),
+          monthlyFee: Number(item.monthly_fee || item.monthlyFee || 0),
+          commission: Number(item.actual_commission || item.store_commission || item.commission || 0),
           contractMonths: Number(item.contract_months || 24),
           prepayment: Number(item.prepayment || 0),
         }));
@@ -111,18 +144,33 @@ export default function Home() {
     }
   };
 
-  const [customers, setCustomers] = useState<Customer[]>([
-    { id: 'c1', name: '林活揚', phone: '0956-096936' },
-    { id: 'c2', name: '王小明', phone: '0912-345678' },
-    { id: 'c3', name: '張美玲', phone: '0988-888888' },
-  ]);
+  // 3. 動態讀取 Supabase 中的客戶清單
+  const fetchCustomers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('customers')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('讀取客戶失敗:', error);
+        return;
+      }
+
+      if (data) {
+        const formattedCustomers: Customer[] = data.map((item: any) => ({
+          id: item.id.toString(),
+          name: item.name || '',
+          phone: item.phone || ''
+        }));
+        setCustomers(formattedCustomers);
+      }
+    } catch (err) {
+      console.error('連線 Supabase 客戶資料失敗:', err);
+    }
+  };
 
   const [salesRecords, setSalesRecords] = useState<SaleRecord[]>([]);
-
-  useEffect(() => {
-    fetchSalesRecords();
-    fetchPlans();
-  }, []);
 
   const fetchSalesRecords = async () => {
     try {
@@ -160,7 +208,9 @@ export default function Home() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [customerSearch, setCustomerSearch] = useState('林活揚 ( 0956-096936 )');
+  
+  // 將預設客戶輸入框改為「空白」，不再預設林活揚
+  const [customerSearch, setCustomerSearch] = useState('');
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
 
   const [isQuickCustomerModalOpen, setIsQuickCustomerModalOpen] = useState(false);
@@ -209,7 +259,6 @@ export default function Home() {
   const [filterCustType, setFilterCustType] = useState('全部');
   const [datePreset, setDatePreset] = useState<'today' | 'week' | 'month' | 'all'>('today');
 
-  // 動態綁定當前真實日期
   const [startDate, setStartDate] = useState(getTodayStr());
   const [endDate, setEndDate] = useState(getTodayStr());
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
@@ -220,7 +269,6 @@ export default function Home() {
   const [perfStaff, setPerfStaff] = useState('全部人員');
   const [perfStartDate, setPerfStartDate] = useState(getTodayStr());
   const [perfEndDate, setPerfEndDate] = useState(getTodayStr());
-  const [perfSubTab, setPerfSubTab] = useState<'comparison' | 'detail' | 'chart'>('comparison');
 
   const handleDatePreset = (preset: 'today' | 'week' | 'month' | 'all') => {
     setDatePreset(preset);
@@ -298,24 +346,6 @@ export default function Home() {
   const perfTotalAmount = filteredPerfRecords.reduce((sum, r) => sum + r.totalAmount, 0);
   const perfTotalProfit = filteredPerfRecords.reduce((sum, r) => sum + r.profit, 0);
 
-  const categoryStats = {
-    combination: { count: 0, amount: 0 },
-    phone: { count: 0, amount: 0 },
-    usedPhone: { count: 0, amount: 0 },
-    accessory: { count: 0, amount: 0 },
-    repair: { count: 0, amount: 0 },
-  };
-
-  filteredPerfRecords.forEach(r => {
-    r.items.forEach(it => {
-      const cat = it.category || 'accessory';
-      if (categoryStats[cat]) {
-        categoryStats[cat].count += it.quantity;
-        categoryStats[cat].amount += it.price * it.quantity;
-      }
-    });
-  });
-
   const handleDeleteRecord = async (id: string) => {
     if (confirm('確定要刪除這筆銷售紀錄嗎？')) {
       const { error } = await supabase
@@ -332,14 +362,6 @@ export default function Home() {
       setIsEditModalOpen(false);
       setEditingRecord(null);
       alert('刪除成功！');
-    }
-  };
-
-  // 手動刪除加入商品的處理函數
-  const handleDeleteProduct = (productId: string, e: React.MouseEvent) => {
-    e.stopPropagation(); // 防止觸發加入購物車
-    if (confirm('確定要從可加入商品列表中移除此商品嗎？')) {
-      setProducts(prev => prev.filter(p => p.id !== productId));
     }
   };
 
@@ -433,20 +455,26 @@ export default function Home() {
     setIsCustomModalOpen(false);
   };
 
-  const handleCreateCustomer = () => {
+  const handleCreateCustomer = async () => {
     if (!newCustName.trim() || !newCustPhone.trim()) {
       alert('請填寫姓名與電話！');
       return;
     }
 
-    const newCustomerObj: Customer = {
-      id: `c-${Date.now()}`,
+    const newCustPayload = {
       name: newCustName.trim(),
-      phone: newCustPhone.trim(),
+      phone: newCustPhone.trim()
     };
 
-    setCustomers([newCustomerObj, ...customers]);
-    setCustomerSearch(`${newCustomerObj.name} ( ${newCustomerObj.phone} )`);
+    const { data, error } = await supabase.from('customers').insert([newCustPayload]).select();
+
+    if (error) {
+      alert('新增客戶至資料庫失敗: ' + error.message);
+      return;
+    }
+
+    fetchCustomers();
+    setCustomerSearch(`${newCustPayload.name} ( ${newCustPayload.phone} )`);
     setNewCustName('');
     setNewCustPhone('');
     setIsQuickCustomerModalOpen(false);
@@ -518,17 +546,27 @@ export default function Home() {
     setCurrentTab('salesRecord');
   };
 
-  const filteredProducts = products.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  // 商品、客戶、方案 模糊搜尋過濾
+  const filteredProducts = products.filter(p => 
+    !searchQuery || p.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+  
   const filteredCustomers = customers.filter(c =>
+    !customerSearch ||
     c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
     c.phone.includes(customerSearch)
   );
 
   const filteredPlans = plans.filter(pl => {
-    const matchKw = !planSearch || pl.name.toLowerCase().includes(planSearch.toLowerCase()) || pl.code.toLowerCase().includes(planSearch.toLowerCase());
-    const matchType = activePlanType === '全部' || pl.type === activePlanType;
-    const matchTel = activeTelecom === '所有電信' || pl.telecom === activeTelecom;
-    return matchKw && matchType && matchTel;
+    const kw = planSearch.toLowerCase().trim();
+    if (!kw) return true;
+    return (
+      pl.name.toLowerCase().includes(kw) ||
+      pl.code.toLowerCase().includes(kw) ||
+      pl.telecom.toLowerCase().includes(kw) ||
+      pl.type.toLowerCase().includes(kw) ||
+      pl.monthlyFee.toString().includes(kw)
+    );
   });
 
   return (
@@ -604,30 +642,27 @@ export default function Home() {
                   />
                 </div>
 
-                <div className="space-y-2 pt-2">
-                  {filteredProducts.map((p) => (
-                    <div
-                      key={p.id}
-                      onClick={() => addToCart(p)}
-                      className="flex justify-between items-center p-3.5 rounded-xl border border-slate-100 bg-white hover:border-blue-300 hover:shadow-sm cursor-pointer transition"
-                    >
-                      <div>
-                        <p className="text-xs font-bold text-slate-800">{p.name}</p>
-                        <p className="text-[11px] text-slate-400 mt-0.5">庫存：{p.stock} | 成本：${p.cost}</p>
+                <div className="space-y-2 pt-2 max-h-80 overflow-y-auto">
+                  {filteredProducts.length === 0 ? (
+                    <p className="text-center py-6 text-xs text-slate-400">目前庫存內無符合的商品</p>
+                  ) : (
+                    filteredProducts.map((p) => (
+                      <div
+                        key={p.id}
+                        onClick={() => addToCart(p)}
+                        className="flex justify-between items-center p-3.5 rounded-xl border border-slate-100 bg-white hover:border-blue-300 hover:shadow-sm cursor-pointer transition"
+                      >
+                        <div>
+                          <p className="text-xs font-bold text-slate-800">{p.name}</p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">庫存：{p.stock} | 成本：${p.cost}</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs font-mono font-bold text-blue-600">${p.price}</span>
+                          <span className="px-2.5 py-1 bg-blue-50 text-blue-600 text-[11px] rounded-lg font-medium">+ 加入</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs font-mono font-bold text-blue-600">${p.price}</span>
-                        <button
-                          onClick={(e) => handleDeleteProduct(p.id, e)}
-                          className="px-2 py-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded text-[11px] transition"
-                          title="移除此商品"
-                        >
-                          ✕ 刪除
-                        </button>
-                        <span className="px-2.5 py-1 bg-blue-50 text-blue-600 text-[11px] rounded-lg font-medium">+ 加入</span>
-                      </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </div>
             </div>
@@ -655,12 +690,12 @@ export default function Home() {
                     <input
                       type="text"
                       value={customerSearch}
-                      onFocus={() => setIsCustomerDropdownOpen(true)}
+                      onFocus={() => { fetchCustomers(); setIsCustomerDropdownOpen(true); }}
                       onChange={(e) => {
                         setCustomerSearch(e.target.value);
                         setIsCustomerDropdownOpen(true);
                       }}
-                      placeholder="搜尋姓名或電話..."
+                      placeholder="點擊選取客戶 或 搜尋姓名/電話..."
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500"
                     />
 
@@ -701,7 +736,7 @@ export default function Home() {
                             <button onClick={() => {
                               if (item.type === 'plan') setSelectedPlan(null);
                               setCart(cart.filter(i => i.id !== item.id));
-                            }} className="text-slate-300 hover:text-rose-500 font-bold">✕</button>
+                            }} className="text-slate-300 hover:text-rose-500 font-bold">✕ 刪除</button>
                           </div>
 
                           <div className="flex justify-between items-center gap-2">
@@ -828,7 +863,6 @@ export default function Home() {
             <p className="text-xs text-slate-400 mt-0.5">查詢與管理銷售訂單記錄。</p>
           </div>
 
-          {/* 篩選條件列 */}
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200/60 space-y-3">
             <div className="flex flex-wrap items-center gap-3 text-xs">
               <input
@@ -902,7 +936,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* 銷售紀錄列表 */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden">
             <div className="p-4 border-b border-slate-100 text-xs text-slate-500 font-medium">
               共 <span className="text-blue-600 font-bold">{filteredSalesRecords.length}</span> 筆紀錄
@@ -954,7 +987,6 @@ export default function Home() {
                       </div>
                     </div>
 
-                    {/* 明細展開區 */}
                     {expandedRowId === rec.id && (
                       <div className="mt-3 pt-3 border-t border-slate-100 bg-slate-50/50 p-3 rounded-xl text-xs space-y-1">
                         <p className="font-bold text-slate-700 mb-1">銷售明細：</p>
@@ -1028,7 +1060,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* 🛠️ 修改銷售紀錄 Modal (包含銷貨日期修改) */}
+      {/* 🛠️ 修改銷售紀錄 Modal */}
       {isEditModalOpen && editingRecord && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
@@ -1187,7 +1219,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* 方案選擇 Modal */}
+      {/* 方案選擇 Modal (直連 Supabase 資料庫) */}
       {isPlanModalOpen && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-xl space-y-4 max-h-[85vh] flex flex-col">
@@ -1199,7 +1231,7 @@ export default function Home() {
             <div className="flex gap-2">
               <input
                 type="text"
-                placeholder="搜尋方案名稱或代碼..."
+                placeholder="搜尋方案名稱、代碼、電信商、金額..."
                 value={planSearch}
                 onChange={(e) => setPlanSearch(e.target.value)}
                 className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700"
@@ -1208,7 +1240,7 @@ export default function Home() {
 
             <div className="flex-1 overflow-y-auto space-y-2 pr-1">
               {filteredPlans.length === 0 ? (
-                <p className="text-center py-8 text-xs text-slate-400">目前查無方案，請至「方案管理」新增方案</p>
+                <p className="text-center py-8 text-xs text-slate-400">目前查無方案，請確定「方案管理」資料庫已有建立方案</p>
               ) : (
                 filteredPlans.map((pl) => (
                   <div
