@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-// 修正：路徑從 '../../lib/supabase' 改為 '../lib/supabase'，解決 Vercel Module not found 錯誤
-import { supabase } from '../lib/supabase';
+import { supabase } from './lib/supabase';
 
 interface Plan {
   id: string;
