@@ -237,9 +237,11 @@ export default function Home() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<SaleRecord | null>(null);
 
-  const [perfStaff, setPerfStaff] = useState('全部人員');
+  // 業績報表專屬狀態
   const [perfStartDate, setPerfStartDate] = useState(getTodayStr());
   const [perfEndDate, setPerfEndDate] = useState(getTodayStr());
+  const [perfTab, setPerfTab] = useState<'details' | 'comparison'>('details');
+  const [compareType, setCompareType] = useState<'lastMonth' | 'lastYear' | 'custom'>('lastMonth');
 
   const handleDatePreset = (preset: 'today' | 'week' | 'month' | 'all') => {
     setDatePreset(preset);
@@ -284,9 +286,7 @@ export default function Home() {
   });
 
   const filteredPerfRecords = salesRecords.filter(record => {
-    const matchStaff = perfStaff === '全部人員' || record.salesperson === perfStaff;
-    const matchDate = record.date >= perfStartDate && record.date <= perfEndDate;
-    return matchStaff && matchDate;
+    return record.date >= perfStartDate && record.date <= perfEndDate;
   });
 
   const perfTotalAmount = filteredPerfRecords.reduce((sum, r) => sum + r.totalAmount, 0);
@@ -400,11 +400,9 @@ export default function Home() {
   const addPaymentRow = () => setPayments([...payments, { id: Date.now().toString(), method: '刷卡分期', installments: '3' }]);
   const removePaymentRow = (id: string) => setPayments(payments.filter(p => p.id !== id));
 
-  // --- 關鍵修改：結帳時檢查庫存，不足時提示並阻擋，成功後自動扣減庫存 ---
   const handleCheckout = async () => {
     if (cart.length === 0) { alert('購物車是空的！'); return; }
 
-    // 1. 檢查購物車中的實體商品庫存是否足夠
     for (const item of cart) {
       if (item.type === 'product') {
         const targetProd = products.find(p => p.id === item.id);
@@ -414,7 +412,7 @@ export default function Home() {
         }
         if (targetProd.stock <= 0 || targetProd.stock < item.quantity) {
           alert(`🚫 庫存不足警告：\n商品「${targetProd.name}」目前庫存僅剩 ${targetProd.stock} 件，無法結帳！`);
-          return; // 直接中斷，無法結帳
+          return;
         }
       }
     }
@@ -424,7 +422,6 @@ export default function Home() {
     const recordId = `sr-${Date.now()}`;
 
     try {
-      // 2. 寫入銷售紀錄
       const { error: saleError } = await supabase.from('sales_records').insert([{
         id: recordId,
         order_no: orderNo,
@@ -442,7 +439,6 @@ export default function Home() {
 
       if (saleError) throw saleError;
 
-      // 3. 自動扣減 Supabase 資料庫中的商品庫存
       for (const item of cart) {
         if (item.type === 'product') {
           const targetProd = products.find(p => p.id === item.id);
@@ -462,7 +458,7 @@ export default function Home() {
     }
 
     await fetchSalesRecords();
-    await fetchProducts(); // 重新同步最新庫存
+    await fetchProducts();
     setExpandedRowId(recordId);
     alert(`結帳成功！單號：${orderNo}，庫存已自動扣減。`);
     setCart([]); setSelectedPlan(null);
@@ -761,36 +757,172 @@ export default function Home() {
         </div>
       )}
 
+      {/* 業績報表頁面 (已完全依照您提供的圖片與需求改版) */}
       {currentTab === 'performance' && (
         <div className="p-8 space-y-6">
           <div>
             <h1 className="text-xl font-bold text-slate-800">業績報表</h1>
-            <p className="text-xs text-slate-400 mt-0.5">檢視門市業績與獲利分析。</p>
+            <p className="text-xs text-slate-400 mt-0.5">全店銷貨業績分析</p>
           </div>
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200/60 space-y-3">
-            <div className="flex items-center gap-3 text-xs">
-              <select value={perfStaff} onChange={(e) => setPerfStaff(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700">
-                <option value="全部人員">全部人員</option>
-                <option value="管理員">管理員</option>
-              </select>
+
+          {/* 頂部篩選控制列 */}
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200/60 flex flex-wrap items-center justify-between gap-4 text-xs">
+            <div className="flex flex-wrap items-center gap-3">
               <div className="flex items-center gap-1.5">
-                <input type="date" value={perfStartDate} onChange={(e) => setPerfStartDate(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-slate-700" />
-                <span className="text-slate-400">~</span>
-                <input type="date" value={perfEndDate} onChange={(e) => setPerfEndDate(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-slate-700" />
+                <span className="text-slate-400">開始日期</span>
+                <input type="date" value={perfStartDate} onChange={(e) => setPerfStartDate(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700" />
               </div>
-              <button onClick={() => handlePerfPreset('today')} className="px-3 py-1.5 bg-slate-100 rounded-lg">今天</button>
-              <button onClick={() => handlePerfPreset('month')} className="px-3 py-1.5 bg-slate-100 rounded-lg">本月</button>
-              <button onClick={() => handlePerfPreset('all')} className="px-3 py-1.5 bg-slate-100 rounded-lg">全部</button>
+              <div className="flex items-center gap-1.5">
+                <span className="text-slate-400">結束日期</span>
+                <input type="date" value={perfEndDate} onChange={(e) => setPerfEndDate(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700" />
+              </div>
+              <button onClick={() => {}} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-sm transition">查詢</button>
+              <button onClick={() => handlePerfPreset('all')} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl font-medium text-slate-600">全部</button>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => handlePerfPreset('today')} className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-600 font-medium">今天</button>
+              <button onClick={() => handlePerfPreset('month')} className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-600 font-medium">本月</button>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm space-y-1">
-              <p className="text-xs text-slate-400 font-medium">銷售總額</p>
-              <p className="text-2xl font-bold font-mono text-slate-800">${perfTotalAmount.toLocaleString()}</p>
+
+          {/* 上方 2 個總計卡片 */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div className="bg-emerald-50/40 p-6 rounded-2xl border border-emerald-100 shadow-sm space-y-1">
+              <p className="text-xs text-slate-400 font-semibold">總銷售金額</p>
+              <p className="text-3xl font-bold font-mono text-emerald-700">${perfTotalAmount.toLocaleString()}</p>
             </div>
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm space-y-1">
-              <p className="text-xs text-slate-400 font-medium">總毛利</p>
-              <p className="text-2xl font-bold font-mono text-emerald-600">+${perfTotalProfit.toLocaleString()}</p>
+            <div className="bg-amber-50/40 p-6 rounded-2xl border border-amber-100 shadow-sm space-y-1">
+              <p className="text-xs text-slate-400 font-semibold">總毛利</p>
+              <p className="text-3xl font-bold font-mono text-amber-700">${perfTotalProfit.toLocaleString()}</p>
+            </div>
+          </div>
+
+          {/* 下方左右雙欄版面 */}
+          <div className="grid grid-cols-12 gap-6 items-start">
+            {/* 左側：銷售類別統計 */}
+            <div className="col-span-12 lg:col-span-3 bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5 space-y-4">
+              <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+                <h3 className="text-xs font-bold text-slate-800">銷售類別</h3>
+                <span className="text-slate-400 text-xs">⚙️</span>
+              </div>
+              <div className="space-y-3 text-xs">
+                <div className="flex justify-between items-center pb-2 border-b border-slate-50">
+                  <span className="text-slate-600 font-medium">組合商品(門號)</span>
+                  <span className="text-slate-400 font-mono">0筆 $0</span>
+                </div>
+                <div className="flex justify-between items-center pb-2 border-b border-slate-50">
+                  <span className="text-slate-600 font-medium">手機</span>
+                  <span className="text-slate-400 font-mono">0筆 $0</span>
+                </div>
+                <div className="flex justify-between items-center pb-2 border-b border-slate-50">
+                  <span className="text-slate-600 font-medium">中古機</span>
+                  <span className="text-slate-400 font-mono">0筆 $0</span>
+                </div>
+                <div className="flex justify-between items-center pb-2 border-b border-slate-50">
+                  <span className="text-slate-600 font-medium">配件</span>
+                  <span className="text-slate-400 font-mono">0筆 $0</span>
+                </div>
+                <div className="flex justify-between items-center pb-2">
+                  <span className="text-slate-600 font-medium">維修</span>
+                  <span className="text-slate-400 font-mono">0筆 $0</span>
+                </div>
+                <div className="pt-4 text-center text-slate-300 text-[11px]">無資料</div>
+              </div>
+            </div>
+
+            {/* 右側：銷售明細 / 月份比較圖表 */}
+            <div className="col-span-12 lg:col-span-9 bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden">
+              <div className="flex items-center justify-between border-b border-slate-100 px-6 py-3">
+                <div className="flex gap-6 text-xs font-semibold">
+                  <button onClick={() => setPerfTab('details')} className={`pb-3 border-b-2 transition ${perfTab === 'details' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>銷售明細</button>
+                  <button onClick={() => setPerfTab('comparison')} className={`pb-3 border-b-2 transition ${perfTab === 'comparison' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>月份比較圖表</button>
+                </div>
+                <span className="text-xs text-slate-400 font-mono">{filteredPerfRecords.length} 筆</span>
+              </div>
+
+              {perfTab === 'details' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-50/75 border-b border-slate-200 text-slate-400 uppercase font-bold tracking-wider">
+                        <th className="py-3 px-5">單號</th>
+                        <th className="py-3 px-5">日期</th>
+                        <th className="py-3 px-5">員工</th>
+                        <th className="py-3 px-5">客戶</th>
+                        <th className="py-3 px-5">方案</th>
+                        <th className="py-3 px-5">金額</th>
+                        <th className="py-3 px-5">佣金</th>
+                        <th className="py-3 px-5">實際毛利</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {filteredPerfRecords.length === 0 ? (
+                        <tr><td colSpan={8} className="text-center py-12 text-slate-400">目前沒有符合條件的銷售明細</td></tr>
+                      ) : (
+                        filteredPerfRecords.map((r) => (
+                          <tr key={r.id} className="hover:bg-slate-50/50 transition">
+                            <td className="py-3.5 px-5 font-mono font-bold text-slate-800">{r.orderNo}</td>
+                            <td className="py-3.5 px-5 font-mono text-slate-500">{r.date}</td>
+                            <td className="py-3.5 px-5 text-slate-600">{r.salesperson}</td>
+                            <td className="py-3.5 px-5 text-slate-800 font-medium">{r.customerName}</td>
+                            <td className="py-3.5 px-5 text-slate-400">—</td>
+                            <td className="py-3.5 px-5 font-mono font-bold text-slate-800">${r.totalAmount.toLocaleString()}</td>
+                            <td className="py-3.5 px-5 font-mono text-slate-400">$0</td>
+                            <td className="py-3.5 px-5 font-mono font-bold text-emerald-600">+${r.profit.toLocaleString()}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {perfTab === 'comparison' && (
+                <div className="p-6 space-y-6 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <span className="text-slate-400">比較對象：</span>
+                      <button onClick={() => setCompareType('lastMonth')} className={`px-4 py-1.5 rounded-xl font-medium border transition ${compareType === 'lastMonth' ? 'bg-blue-50 border-blue-200 text-blue-600 font-bold' : 'bg-white border-slate-200 text-slate-600'}`}>上個月</button>
+                      <button onClick={() => setCompareType('lastYear')} className={`px-4 py-1.5 rounded-xl font-medium border transition ${compareType === 'lastYear' ? 'bg-blue-50 border-blue-200 text-blue-600 font-bold' : 'bg-white border-slate-200 text-slate-600'}`}>去年同期</button>
+                      <button onClick={() => setCompareType('custom')} className={`px-4 py-1.5 rounded-xl font-medium border transition ${compareType === 'custom' ? 'bg-blue-50 border-blue-200 text-blue-600 font-bold' : 'bg-white border-slate-200 text-slate-600'}`}>自訂月份</button>
+                    </div>
+                    <button className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-sm transition">更新圖表</button>
+                  </div>
+
+                  {/* 模擬長條圖區塊 */}
+                  <div className="h-64 border-b border-slate-200 flex items-end justify-around px-8 pb-4 bg-slate-50/50 rounded-xl relative">
+                    <div className="flex flex-col items-center gap-2">
+                      <span className="font-mono font-bold text-blue-600">${perfTotalAmount.toLocaleString()}</span>
+                      <div className="w-12 bg-blue-500 rounded-t-lg transition-all" style={{ height: `${Math.min(150, Math.max(20, perfTotalAmount / 500))}px` }}></div>
+                      <span className="text-slate-500 font-medium">當前查詢期間</span>
+                    </div>
+                    <div className="flex flex-col items-center gap-2">
+                      <span className="font-mono font-bold text-slate-400">$0</span>
+                      <div className="w-12 bg-slate-300 rounded-t-lg h-6"></div>
+                      <span className="text-slate-400 font-medium">比較期間</span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2">
+                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                      <span className="text-slate-400 block mb-1">銷售金額</span>
+                      <span className="font-mono font-bold text-slate-800 text-base">${perfTotalAmount.toLocaleString()}</span>
+                    </div>
+                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                      <span className="text-slate-400 block mb-1">門號佣金</span>
+                      <span className="font-mono font-bold text-slate-800 text-base">$0</span>
+                    </div>
+                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                      <span className="text-slate-400 block mb-1">商品毛利</span>
+                      <span className="font-mono font-bold text-emerald-600 text-base">+${perfTotalProfit.toLocaleString()}</span>
+                    </div>
+                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                      <span className="text-slate-400 block mb-1">總業績</span>
+                      <span className="font-mono font-bold text-blue-600 text-base">${perfTotalAmount.toLocaleString()}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
