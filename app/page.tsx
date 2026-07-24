@@ -80,36 +80,74 @@ export default function ControlPage() {
     return [];
   });
 
-  // 深度掃描全域所有可能的 localStorage 鍵值，找不到時提供預設商品以確保介面可操作
-  const [products, setProducts] = useState<Product[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const allKeys = Object.keys(localStorage);
-        for (const k of allKeys) {
-          if (k.includes('product') || k.includes('inventory') || k.includes('stock')) {
-            const val = localStorage.getItem(k);
-            if (val) {
+  // 核心修復：強制全面掃描所有常見的庫存/商品 Key，確保能抓到您在「新品庫存管理」新增的真實資料
+  const loadInventoryProducts = (): Product[] => {
+    if (typeof window === 'undefined') return [];
+    
+    // 列出所有可能儲存商品庫存的 Key 優先順序
+    const possibleKeys = [
+      'inventory_products', 
+      'products', 
+      'pos_products', 
+      'stock_products', 
+      'new_products',
+      'shop_products'
+    ];
+
+    let rawList: any[] = [];
+
+    // 1. 先從指定的常見 Key 找
+    for (const key of possibleKeys) {
+      const data = localStorage.getItem(key);
+      if (data) {
+        try {
+          const parsed = JSON.parse(data);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            rawList = parsed;
+            break;
+          }
+        } catch (e) { console.error(e); }
+      }
+    }
+
+    // 2. 如果指定 Key 找不到，全域掃描任何含有 product/inventory/stock 的 key
+    if (rawList.length === 0) {
+      const allKeys = Object.keys(localStorage);
+      for (const k of allKeys) {
+        if (k.toLowerCase().includes('product') || k.toLowerCase().includes('inventory') || k.toLowerCase().includes('stock')) {
+          const val = localStorage.getItem(k);
+          if (val) {
+            try {
               const parsed = JSON.parse(val);
               if (Array.isArray(parsed) && parsed.length > 0) {
-                return parsed.map((p: any) => ({
-                  id: p.id || p.productNo || p.code || String(Math.random()),
-                  name: p.name || p.productName || '未命名商品',
-                  price: Number(p.price || p.sellPrice || p.retailPrice || 100),
-                  cost: Number(p.cost || p.actualCost || 30),
-                  stock: Number(p.stock ?? p.quantity ?? p.qty ?? 10),
-                  category: p.category || '一般'
-                }));
+                rawList = parsed;
+                break;
               }
-            }
+            } catch (e) { console.error(e); }
           }
         }
-      } catch (e) { console.error(e); }
+      }
     }
-    // 若找不到任何外部儲存，提供預設商品讓銷貨介面立刻有東西可以點擊測試
-    return [
-      { id: 'PRD000015', name: '保貼', price: 150, cost: 30, stock: 5, category: '配件' }
-    ];
-  });
+
+    // 若真的完全找不到，回傳預設保貼
+    if (rawList.length === 0) {
+      return [
+        { id: 'PRD000015', name: '保貼', price: 150, cost: 30, stock: 5, category: '配件' }
+      ];
+    }
+
+    // 標準化欄位對應（相容各種命名方式如 sellPrice, quantity 等）
+    return rawList.map((p: any) => ({
+      id: p.id || p.productNo || p.code || String(Math.random()),
+      name: p.name || p.productName || '未命名商品',
+      price: Number(p.price || p.sellPrice || p.retailPrice || p.unitPrice || 100),
+      cost: Number(p.cost || p.actualCost || p.purchaseCost || 30),
+      stock: Number(p.stock ?? p.quantity ?? p.qty ?? p.count ?? 0),
+      category: p.category || '一般'
+    }));
+  };
+
+  const [products, setProducts] = useState<Product[]>(loadInventoryProducts);
 
   const [customers, setCustomers] = useState<Customer[]>(() => {
     if (typeof window !== 'undefined') {
@@ -161,34 +199,11 @@ export default function ControlPage() {
     return defaultPlans;
   });
 
-  // 即時監聽與同步全域商品庫存資料
+  // 即時監聽 localStorage 變動，確保在庫存頁面新增或修改後，這裡一秒內自動同步數量
   useEffect(() => {
     const interval = setInterval(() => {
-      if (typeof window !== 'undefined') {
-        const allKeys = Object.keys(localStorage);
-        for (const k of allKeys) {
-          if (k.includes('product') || k.includes('inventory') || k.includes('stock')) {
-            const val = localStorage.getItem(k);
-            if (val) {
-              try {
-                const parsed = JSON.parse(val);
-                if (Array.isArray(parsed) && parsed.length > 0) {
-                  const formatted = parsed.map((p: any) => ({
-                    id: p.id || p.productNo || p.code || String(Math.random()),
-                    name: p.name || p.productName || '未命名商品',
-                    price: Number(p.price || p.sellPrice || p.retailPrice || 100),
-                    cost: Number(p.cost || p.actualCost || 30),
-                    stock: Number(p.stock ?? p.quantity ?? p.qty ?? 0),
-                    category: p.category || '一般'
-                  }));
-                  setProducts(formatted);
-                  break;
-                }
-              } catch (e) { console.error(e); }
-            }
-          }
-        }
-      }
+      const latest = loadInventoryProducts();
+      setProducts(latest);
     }, 1000);
     return () => clearInterval(interval);
   }, []);
@@ -248,7 +263,6 @@ export default function ControlPage() {
     setPlanSearch('');
   };
 
-  // 加入商品至購物車：內含庫存不足 0 的防護阻擋
   const addToCart = (p: Product) => {
     if (p.stock <= 0) {
       alert(`⚠️ 提示：商品「${p.name}」目前庫存為 0，無法加入銷貨！`);
@@ -341,7 +355,6 @@ export default function ControlPage() {
   
   const totalProfit = baseProfit - totalFeeAmount;
 
-  // 結帳處理：確實扣除對應商品庫存並同步更新回所有 localStorage
   const handleCheckout = () => {
     if (cart.length === 0) {
       alert('購物車目前沒有項目！');
@@ -368,13 +381,10 @@ export default function ControlPage() {
 
     setProducts(updatedProducts);
     if (typeof window !== 'undefined') {
-      const allKeys = Object.keys(localStorage);
-      allKeys.forEach(k => {
-        if (k.includes('product') || k.includes('inventory') || k.includes('stock')) {
-          localStorage.setItem(k, JSON.stringify(updatedProducts));
-        }
-      });
+      // 同步寫入所有可能的庫存 Key 確保兩邊同步
       localStorage.setItem('inventory_products', JSON.stringify(updatedProducts));
+      localStorage.setItem('products', JSON.stringify(updatedProducts));
+      localStorage.setItem('pos_products', JSON.stringify(updatedProducts));
     }
 
     const orderNo = `SD${getTodayStr().replace(/-/g, '').slice(2)}${Math.floor(100 + Math.random() * 900)}`;
@@ -448,7 +458,7 @@ export default function ControlPage() {
   };
 
   const filteredProducts = products.filter(p => 
-    !productSearch || p.name.includes(productSearch) || p.id.includes(productSearch)
+    !productSearch || p.name.toLowerCase().includes(productSearch.toLowerCase()) || p.id.toLowerCase().includes(productSearch.toLowerCase())
   );
 
   const filteredCustomers = customers.filter(c => {
@@ -751,7 +761,6 @@ export default function ControlPage() {
         </div>
       )}
 
-      {/* 方案選擇視窗 Modal */}
       {isPlanModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl p-6 max-w-lg w-full space-y-4 shadow-xl">
@@ -781,7 +790,6 @@ export default function ControlPage() {
         </div>
       )}
 
-      {/* 自訂項目視窗 Modal */}
       {isCustomModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-xl">
@@ -815,7 +823,6 @@ export default function ControlPage() {
         </div>
       )}
 
-      {/* 快速建立會員 Modal */}
       {isCustomerModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-xl">
