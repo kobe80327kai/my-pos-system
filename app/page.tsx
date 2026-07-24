@@ -8,7 +8,7 @@ export default function POSSystem() {
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   const [salesperson, setSalesperson] = useState('管理員');
   
-  // 結帳付款方式多組支援
+  // 結帳付款方式多組支援（預設金額給 0 避免 NaN）
   const [payments, setPayments] = useState<any[]>([
     { method: '現金', amount: 0, installments: '3' }
   ]);
@@ -79,6 +79,7 @@ export default function POSSystem() {
     let totalFee = 0;
     const details = payments.map(p => {
       let rate = 0;
+      const amt = Number(p.amount) || 0;
       if (p.method === '刷卡') rate = 0.02;
       else if (p.method === '刷卡分期') {
         if (p.installments === '3') rate = 0.03;
@@ -86,7 +87,7 @@ export default function POSSystem() {
         else if (p.installments === '12') rate = 0.045;
         else if (p.installments === '24') rate = 0.06;
       }
-      const fee = Math.round(p.amount * rate);
+      const fee = Math.round(amt * rate);
       totalFee += fee;
       return { ...p, rate, fee };
     });
@@ -115,7 +116,7 @@ export default function POSSystem() {
         id: plan.id,
         name: `[電信方案] ${plan.name}`,
         price: 0,
-        cost: -plan.storeRebate, // 佣金當作負成本或毛利貢獻
+        cost: -plan.storeRebate,
         quantity: 1
       }
     ]);
@@ -158,7 +159,7 @@ export default function POSSystem() {
       id: 'r_' + Date.now(),
       orderNo: 'POS' + new Date().toISOString().slice(0,10).replace(/-/g,'') + Math.floor(100 + Math.random() * 900),
       date: new Date().toLocaleString(),
-      customerName: selectedCustomer ? selectedNameDisplay(selectedCustomer) : '散客',
+      customerName: selectedCustomer ? `${selectedCustomer.name} (${selectedCustomer.phone})` : '散客',
       salesperson,
       paymentInfo: payments.map(p => `${p.method}${p.method === '刷卡分期' ? `(${p.installments}期)` : ''}`).join(', '),
       totalAmount: totalAmountWithFee,
@@ -171,13 +172,10 @@ export default function POSSystem() {
     alert('結帳成功！');
   };
 
-  const selectedNameDisplay = (cust: any) => `${cust.name} (${cust.phone})`;
-
   const toggleExpandRecord = (id: string) => {
     setExpandedRecordIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
 
-  // 日期快速篩選
   const handleDateFilterPreset = (mode: string) => {
     setDateFilterMode(mode);
     const today = new Date();
@@ -213,8 +211,8 @@ export default function POSSystem() {
 
   return (
     <div className="flex h-screen bg-slate-900 text-slate-100 font-sans overflow-hidden">
-      {/* 側邊導覽列 */}
-      <div className="w-64 bg-slate-950 flex flex-col justify-between border-r border-slate-800/60">
+      {/* 唯一正確的側邊導覽列 */}
+      <div className="w-64 bg-slate-950 flex flex-col justify-between border-r border-slate-800/60 shrink-0">
         <div className="p-5 space-y-6">
           <div>
             <h2 className="text-base font-bold text-white tracking-wide">POS 門市系統</h2>
@@ -264,13 +262,13 @@ export default function POSSystem() {
                 />
                 <button
                   onClick={() => setIsPlanModalOpen(true)}
-                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-bold shadow-sm transition"
+                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-bold shadow-sm transition shrink-0"
                 >
                   + 辦理門號方案
                 </button>
                 <button
                   onClick={() => setIsCustomModalOpen(true)}
-                  className="px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-2xl text-xs font-bold shadow-sm transition"
+                  className="px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-2xl text-xs font-bold shadow-sm transition shrink-0"
                 >
                   + 自訂/維修
                 </button>
@@ -364,7 +362,7 @@ export default function POSSystem() {
                             type="number"
                             value={p.amount}
                             onChange={(e) => {
-                              const val = Number(e.target.value);
+                              const val = e.target.value === '' ? 0 : Number(e.target.value);
                               setPayments(payments.map((item, idx) => idx === pIdx ? { ...item, amount: val } : item));
                             }}
                             placeholder="金額"
@@ -435,11 +433,11 @@ export default function POSSystem() {
                 )}
                 <div className="flex justify-between text-base font-bold text-slate-800 pt-1">
                   <span>應付總額</span>
-                  <span className="font-mono text-blue-600">${totalAmountWithFee}</span>
+                  <span className="font-mono text-blue-600">${isNaN(totalAmountWithFee) ? 0 : totalAmountWithFee}</span>
                 </div>
                 <div className="flex justify-between text-xs text-emerald-600 font-bold pt-1">
                   <span>預估總毛利</span>
-                  <span className="font-mono">${totalProfit}</span>
+                  <span className="font-mono">${isNaN(totalProfit) ? 0 : totalProfit}</span>
                 </div>
               </div>
 
