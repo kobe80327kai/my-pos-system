@@ -85,6 +85,7 @@ export default function ControlPage() {
   const loadInventoryProducts = (): Product[] => {
     if (typeof window === 'undefined') return [];
     
+    // 檢查所有可能儲存庫存或新品的 localStorage 鍵值
     const possibleKeys = [
       'new_products',
       'inventory_products',
@@ -93,7 +94,9 @@ export default function ControlPage() {
       'stock_products',
       'shop_inventory',
       'items',
-      'warehouse_products'
+      'warehouse_products',
+      'inventory',
+      'goods'
     ];
 
     let rawList: any[] = [];
@@ -104,50 +107,60 @@ export default function ControlPage() {
         try {
           const parsed = JSON.parse(data);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            rawList = parsed;
-            break;
+            rawList = [...rawList, ...parsed];
           }
         } catch (e) { console.error(e); }
       }
     }
 
-    if (rawList.length === 0) {
-      const allKeys = Object.keys(localStorage);
-      for (const k of allKeys) {
-        const lowerK = k.toLowerCase();
-        if (lowerK.includes('product') || lowerK.includes('inventory') || lowerK.includes('stock') || lowerK.includes('item') || lowerK.includes('warehouse')) {
-          const val = localStorage.getItem(k);
-          if (val) {
-            try {
-              const parsed = JSON.parse(val);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                rawList = parsed;
-                break;
-              }
-            } catch (e) { console.error(e); }
+    // 全面掃描所有 localStorage 鍵值，只要裡面是陣列且包含商品特徵就抓進來
+    const allKeys = Object.keys(localStorage);
+    for (const k of allKeys) {
+      const val = localStorage.getItem(k);
+      if (val) {
+        try {
+          const parsed = JSON.parse(val);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            // 檢查是否含有常見商品欄位
+            const hasProductField = parsed.some(item => 
+              item && typeof item === 'object' && (item.name || item.productName || item.title || item.price || item.cost || item.imei || item.serialNo)
+            );
+            if (hasProductField) {
+              rawList = [...rawList, ...parsed];
+            }
           }
-        }
+        } catch (e) { /* ignore */ }
       }
     }
 
-    if (rawList.length === 0) {
-      return [
-        { id: 'PRD000015', name: '保貼', price: 150, cost: 30, stock: 1, category: '配件' },
-        { id: 'PRD000016', name: '行動電源', price: 500, cost: 200, stock: 1, category: '配件' },
-        { id: 'PRD000017', name: '空壓殼', price: 150, cost: 30, stock: 1, category: '配件' }
-      ];
-    }
+    // 進行去重 (以 id 或 名稱+imei 為唯一鍵)
+    const uniqueMap = new Map<string, Product>();
+    
+    // 預設示範商品
+    const defaults: Product[] = [
+      { id: 'PRD000015', name: '保貼', price: 150, cost: 30, stock: 1, category: '配件' },
+      { id: 'PRD000016', name: '行動電源', price: 500, cost: 200, stock: 1, category: '配件' },
+      { id: 'PRD000017', name: '空壓殼', price: 150, cost: 30, stock: 1, category: '配件' }
+    ];
 
-    return rawList.map((p: any) => ({
-      id: p.id || p.productNo || p.code || String(Math.random()),
-      name: p.name || p.productName || '未命名商品',
-      price: Number(p.price || p.sellPrice || p.retailPrice || p.unitPrice || 100),
-      cost: Number(p.cost || p.actualCost || p.purchaseCost || p.priceCost || 30),
-      stock: Number(p.stock ?? p.quantity ?? p.qty ?? p.count ?? 1),
-      category: p.category || '一般',
-      imei: p.imei || p.IMEI || '',
-      serialNo: p.serialNo || p.serial || p.sn || ''
-    }));
+    [...defaults, ...rawList].forEach((p: any) => {
+      if (!p) return;
+      const id = p.id || p.productNo || p.code || p.sku || String(Math.random());
+      const name = p.name || p.productName || p.title || '未命名商品';
+      const price = Number(p.price || p.sellPrice || p.retailPrice || p.unitPrice || 100);
+      const cost = Number(p.cost || p.actualCost || p.purchaseCost || p.priceCost || 30);
+      const stock = Number(p.stock ?? p.quantity ?? p.qty ?? p.count ?? 1);
+      const category = p.category || '一般';
+      const imei = p.imei || p.IMEI || '';
+      const serialNo = p.serialNo || p.serial || p.sn || '';
+
+      const uniqueKey = `${id}_${name}_${imei}`;
+      if (!uniqueMap.has(uniqueKey)) {
+        uniqueMap.set(uniqueKey, { id, name, price, cost, stock, category, imei, serialNo });
+      }
+    });
+
+    return Array.from(uniqueMap.values());
   };
 
   const [products, setProducts] = useState<Product[]>(loadInventoryProducts);
@@ -202,11 +215,12 @@ export default function ControlPage() {
     return defaultPlans;
   });
 
+  // 定期自動同步抓取最新庫存（支援跨頁面新品庫存管理新增後立刻撈的到）
   useEffect(() => {
     const interval = setInterval(() => {
       const latest = loadInventoryProducts();
       setProducts(latest);
-    }, 400);
+    }, 300);
     return () => clearInterval(interval);
   }, []);
 
@@ -383,7 +397,7 @@ export default function ControlPage() {
 
     setProducts(updatedProducts);
     if (typeof window !== 'undefined') {
-      const storageKeys = ['new_products', 'inventory_products', 'products', 'pos_products', 'stock_products', 'warehouse_products'];
+      const storageKeys = ['new_products', 'inventory_products', 'products', 'pos_products', 'stock_products', 'warehouse_products', 'inventory'];
       storageKeys.forEach(k => {
         const data = localStorage.getItem(k);
         if (data) {
@@ -557,7 +571,7 @@ export default function ControlPage() {
                   ) : (
                     filteredProducts.map((p) => (
                       <div 
-                        key={p.id} 
+                        key={`${p.id}_${p.name}`} 
                         onClick={() => addToCart(p)} 
                         className={`flex justify-between items-center p-3.5 border rounded-2xl transition ${p.stock <= 0 ? 'bg-slate-100 opacity-60 cursor-not-allowed border-slate-200' : 'border-slate-100 cursor-pointer hover:bg-blue-50/50'}`}
                       >
@@ -1010,7 +1024,7 @@ export default function ControlPage() {
       {isCustomerModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-6 max-w-md w-full space-y-4 shadow-xl border border-slate-100">
-            <div className="flex justify-between items-center border-b pb-3">
+            <div className="flex justify-between items-center border-b-0 pb-3">
               <h3 className="text-sm font-bold text-slate-800">快速建立會員客戶</h3>
               <button onClick={() => setIsCustomerModalOpen(false)} className="text-slate-400 hover:text-rose-600 text-lg">×</button>
             </div>
