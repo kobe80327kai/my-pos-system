@@ -295,7 +295,7 @@ export default function Home() {
   const perfTotalAmount = filteredPerfRecords.reduce((sum, r) => sum + r.totalAmount, 0);
   const perfTotalProfit = filteredPerfRecords.reduce((sum, r) => sum + r.profit, 0);
 
-  // 精準分類與加總統計
+  // 完美強化的分類與加總統計
   const categoryStats = {
     '組合商品(門號)': { count: 0, amount: 0 },
     '手機': { count: 0, amount: 0 },
@@ -306,17 +306,17 @@ export default function Home() {
 
   filteredPerfRecords.forEach(r => {
     r.items.forEach(it => {
-      let cat = it.category || '';
+      let cat = (it.category || '').trim();
       const nameLower = (it.name || '').toLowerCase();
       
-      if (cat.includes('組') || cat.includes('門號') || nameLower.includes('方案') || nameLower.includes('門號')) {
+      if (cat === '維修' || nameLower.includes('維修') || nameLower.includes('換螢幕') || nameLower.includes('修')) {
+        cat = '維修';
+      } else if (cat.includes('組') || cat.includes('門號') || nameLower.includes('方案') || nameLower.includes('門號')) {
         cat = '組合商品(門號)';
       } else if (cat.includes('中古') || nameLower.includes('中古')) {
         cat = '中古機';
       } else if (cat.includes('手機') || nameLower.includes('手機') || nameLower.includes('iphone') || nameLower.includes('samsung')) {
         cat = '手機';
-      } else if (cat.includes('維修') || nameLower.includes('維修') || nameLower.includes('換螢幕') || nameLower.includes('修')) {
-        cat = '維修';
       } else {
         cat = '配件';
       }
@@ -407,7 +407,10 @@ export default function Home() {
     }
     const priceNum = parseFloat(customPrice);
     const costNum = parseFloat(customCost) || 0;
+    // 關鍵修正：確保維修類別正確被標記為 '維修'
     const catName = customCategory === 'repair' ? '維修' : '配件';
+    const itemType = customCategory === 'repair' ? 'repair' : 'custom';
+
     setCart((prev) => [...prev, {
       id: `custom-${Date.now()}`,
       name: customName,
@@ -415,7 +418,7 @@ export default function Home() {
       cost: costNum,
       commission: 0,
       quantity: 1,
-      type: customCategory === 'repair' ? 'repair' : 'custom',
+      type: itemType,
       category: catName,
     }]);
     setCustomName(''); setCustomPrice(''); setCustomCost('');
@@ -650,7 +653,7 @@ export default function Home() {
                       return (
                         <div key={item.id} className="p-3 rounded-xl border border-slate-100 bg-slate-50/50 space-y-2 text-xs">
                           <div className="flex justify-between items-center">
-                            <span className="font-bold text-slate-800">{item.name}</span>
+                            <span className="font-bold text-slate-800">{item.name} <span className="text-[10px] text-slate-400 font-normal">[{item.category}]</span></span>
                             <button onClick={() => { if (item.type === 'plan') setSelectedPlan(null); setCart(cart.filter(i => i.id !== item.id)); }} className="text-slate-300 hover:text-rose-500 font-bold">✕ 刪除</button>
                           </div>
                           <div className="flex justify-between items-center gap-2">
