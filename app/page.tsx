@@ -11,7 +11,7 @@ interface Product {
   stock: number;
   imei?: string;
   serialNumber?: string;
-  cardNo?: string; // SIM 卡號 / ICCID
+  cardNo?: string;
   code?: string;
 }
 
@@ -19,11 +19,12 @@ interface Plan {
   id: string;
   code: string;
   name: string;
-  telecom: '遠傳電信' | '台灣大哥大' | '中華電信' | string;
-  type: '新申辦' | '攜碼' | '續約' | '手機保險' | string;
+  carrier: string;
+  type: string;
   monthlyFee: number;
-  commission: number;
-  contractMonths?: number;
+  actualCommission: number;
+  storeCommission: number;
+  contractPeriod?: number;
   prepayment?: number;
 }
 
@@ -51,6 +52,15 @@ interface PaymentRow {
   installments: string;
 }
 
+interface SaleRecordItem {
+  name: string;
+  imei: string;
+  cost: number;
+  price: number;
+  quantity: number;
+  category?: 'combination' | 'phone' | 'usedPhone' | 'accessory' | 'repair';
+}
+
 interface SaleRecord {
   id: string;
   orderNo: string;
@@ -59,19 +69,15 @@ interface SaleRecord {
   customerType: string;
   salesperson: string;
   store: string;
-  items: {
-    name: string;
-    imei: string;
-    cost: number;
-    price: number;
-    quantity: number;
-    category?: 'combination' | 'phone' | 'usedPhone' | 'accessory' | 'repair';
-  }[];
+  items: SaleRecordItem[];
   totalAmount: number;
   totalCost: number;
   profit: number;
   paymentInfo: string;
 }
+
+const POS_PLANS_KEY = 'pos_plans';
+const POS_PRODUCTS_KEY = 'pos_products';
 
 export default function Home() {
   const [currentTab, setCurrentTab] = useState<'pos' | 'salesRecord' | 'performance'>('pos');
@@ -87,68 +93,85 @@ export default function Home() {
     fetchCustomers();
   }, []);
 
-  // 1. 動態讀取 Supabase 新品與商品庫存 (包含 IMEI, 序號, SIM卡號)
+  // 1. 讀取商品庫存 (支援 Supabase 與 LocalStorage 'pos_products')
   const fetchProducts = async () => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(POS_PRODUCTS_KEY);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setProducts(parsed);
+          }
+        } catch (err) {
+          console.error('解析本地商品資料失敗:', err);
+        }
+      }
+    }
+
     try {
-      // 嘗試撈取 products 或 inventory 資料表
       const { data, error } = await supabase
         .from('products')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('讀取商品失敗，嘗試替代來源:', error);
-        return;
-      }
-
-      if (data) {
-        const formattedProducts: Product[] = data.map((item: any) => ({
-          id: item.id.toString(),
-          name: item.name || item.product_name || item.title || '',
+      if (data && !error && data.length > 0) {
+        const formattedProducts: Product[] = data.map((item: Record<string, unknown>) => ({
+          id: String(item.id ?? ''),
+          name: String(item.name || item.product_name || item.title || ''),
           price: Number(item.price || item.selling_price || 0),
           cost: Number(item.cost || item.cost_price || 0),
           stock: Number(item.stock !== undefined ? item.stock : (item.quantity || 1)),
-          imei: item.imei || item.imei_number || '',
-          serialNumber: item.serial_number || item.sn || item.serialNo || '',
-          cardNo: item.card_no || item.iccid || item.sim_no || item.card_number || '',
-          code: item.code || item.product_code || ''
+          imei: String(item.imei || item.imei_number || ''),
+          serialNumber: String(item.serial_number || item.sn || item.serialNo || ''),
+          cardNo: String(item.card_no || item.iccid || item.sim_no || item.card_number || ''),
+          code: String(item.code || item.product_code || '')
         }));
         setProducts(formattedProducts);
+        localStorage.setItem(POS_PRODUCTS_KEY, JSON.stringify(formattedProducts));
       }
     } catch (err) {
-      console.error('連線 Supabase 商品資料失敗:', err);
+      console.log('連線 Supabase 商品失敗，使用本地資料運作:', err);
     }
   };
 
-  // 2. 動態讀取 Supabase 中的方案清單
+  // 2. 讀取方案資料 (對接 'pos_plans' LocalStorage & Supabase)
   const fetchPlans = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('plans')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('讀取方案失敗:', error);
-        return;
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(POS_PLANS_KEY);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setPlans(parsed);
+          }
+        } catch (err) {
+          console.error('解析 LocalStorage pos_plans 失敗:', err);
+        }
       }
+    }
 
-      if (data) {
-        const formattedPlans: Plan[] = data.map((item: any) => ({
-          id: item.id.toString(),
-          code: item.code || item.plan_code || '',
-          name: item.name || item.plan_name || item.title || '',
-          telecom: item.telecom || item.operator || '遠傳電信',
-          type: item.type || item.plan_type || '攜碼',
-          monthlyFee: Number(item.monthly_fee || item.monthlyFee || item.fee || 0),
-          commission: Number(item.actual_commission || item.store_commission || item.commission || 0),
-          contractMonths: Number(item.contract_months || 24),
+    try {
+      const { data, error } = await supabase.from('plans').select('*').order('created_at', { ascending: false });
+
+      if (data && !error && data.length > 0) {
+        const formattedPlans: Plan[] = data.map((item: Record<string, unknown>) => ({
+          id: String(item.id ?? ''),
+          code: String(item.code || ''),
+          name: String(item.name || ''),
+          carrier: String(item.carrier || item.telecom || '遠傳電信'),
+          type: String(item.type || '新申辦'),
+          monthlyFee: Number(item.monthly_fee || item.monthlyFee || 0),
+          actualCommission: Number(item.actual_commission || item.actualCommission || 0),
+          storeCommission: Number(item.store_commission || item.storeCommission || 0),
+          contractPeriod: Number(item.contract_period || item.contractPeriod || 24),
           prepayment: Number(item.prepayment || 0),
         }));
         setPlans(formattedPlans);
+        localStorage.setItem(POS_PLANS_KEY, JSON.stringify(formattedPlans));
       }
     } catch (err) {
-      console.error('連線 Supabase 方案資料失敗:', err);
+      console.log('連線 Supabase 方案資料失敗，使用本地資料運作:', err);
     }
   };
 
@@ -160,16 +183,11 @@ export default function Home() {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('讀取客戶失敗:', error);
-        return;
-      }
-
-      if (data) {
-        const formattedCustomers: Customer[] = data.map((item: any) => ({
-          id: item.id.toString(),
-          name: item.name || '',
-          phone: item.phone || item.mobile || ''
+      if (data && !error && data.length > 0) {
+        const formattedCustomers: Customer[] = data.map((item: Record<string, unknown>) => ({
+          id: String(item.id ?? ''),
+          name: String(item.name || ''),
+          phone: String(item.phone || item.mobile || '')
         }));
         setCustomers(formattedCustomers);
       }
@@ -187,30 +205,25 @@ export default function Home() {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('讀取銷售紀錄失敗:', error);
-        return;
-      }
-
-      if (data) {
-        const formattedRecords: SaleRecord[] = data.map((item: any) => ({
-          id: item.id,
-          orderNo: item.order_no,
-          date: item.date,
-          customerName: item.customer_name,
-          customerType: item.customer_type,
-          salesperson: item.salesperson,
-          store: item.store,
-          items: typeof item.items === 'string' ? JSON.parse(item.items) : item.items,
-          totalAmount: Number(item.total_amount),
-          totalCost: Number(item.total_cost),
-          profit: Number(item.profit),
-          paymentInfo: item.payment_info
+      if (data && !error && data.length > 0) {
+        const formattedRecords: SaleRecord[] = data.map((item: Record<string, unknown>) => ({
+          id: String(item.id ?? ''),
+          orderNo: String(item.order_no || ''),
+          date: String(item.date || ''),
+          customerName: String(item.customer_name || ''),
+          customerType: String(item.customer_type || ''),
+          salesperson: String(item.salesperson || ''),
+          store: String(item.store || ''),
+          items: typeof item.items === 'string' ? JSON.parse(item.items) : (item.items as SaleRecordItem[]),
+          totalAmount: Number(item.total_amount || 0),
+          totalCost: Number(item.total_cost || 0),
+          profit: Number(item.profit || 0),
+          paymentInfo: String(item.payment_info || '')
         }));
         setSalesRecords(formattedRecords);
       }
     } catch (err) {
-      console.error('連線 Supabase 發生錯誤:', err);
+      console.error('連線 Supabase 銷售紀錄失敗:', err);
     }
   };
 
@@ -352,14 +365,10 @@ export default function Home() {
 
   const handleDeleteRecord = async (id: string) => {
     if (confirm('確定要刪除這筆銷售紀錄嗎？')) {
-      const { error } = await supabase
-        .from('sales_records')
-        .delete()
-        .eq('id', id);
-
-      if (error) {
-        alert('刪除失敗：' + error.message);
-        return;
+      try {
+        await supabase.from('sales_records').delete().eq('id', id);
+      } catch (err) {
+        console.error('刪除銷售紀錄失敗:', err);
       }
 
       setSalesRecords(prev => prev.filter(r => r.id !== id));
@@ -389,14 +398,10 @@ export default function Home() {
       payment_info: editingRecord.paymentInfo
     };
 
-    const { error } = await supabase
-      .from('sales_records')
-      .update(updatedDbPayload)
-      .eq('id', editingRecord.id);
-
-    if (error) {
-      alert('更新失敗：' + error.message);
-      return;
+    try {
+      await supabase.from('sales_records').update(updatedDbPayload).eq('id', editingRecord.id);
+    } catch (err) {
+      console.error('更新銷售紀錄失敗:', err);
     }
 
     fetchSalesRecords();
@@ -427,12 +432,13 @@ export default function Home() {
 
   const handleSelectPlan = (plan: Plan) => {
     setSelectedPlan(plan);
+    const comm = plan.actualCommission || plan.storeCommission || 0;
     const planCartItem: CartItem = {
       id: `plan-${plan.id}`,
-      name: `[${plan.telecom}] ${plan.name} (${plan.type})`,
+      name: `[${plan.carrier}] ${plan.name} (${plan.type})`,
       price: 0,
       cost: 0,
-      commission: plan.commission,
+      commission: comm,
       quantity: 1,
       type: 'plan',
     };
@@ -476,18 +482,18 @@ export default function Home() {
     }
 
     const newCustPayload = {
+      id: String(Date.now()),
       name: newCustName.trim(),
       phone: newCustPhone.trim()
     };
 
-    const { error } = await supabase.from('customers').insert([newCustPayload]);
-
-    if (error) {
-      alert('新增客戶至資料庫失敗: ' + error.message);
-      return;
+    try {
+      await supabase.from('customers').insert([{ name: newCustPayload.name, phone: newCustPayload.phone }]);
+    } catch (err) {
+      console.error('新增客戶失敗:', err);
     }
 
-    fetchCustomers();
+    setCustomers(prev => [newCustPayload, ...prev]);
     setCustomerSearch(`${newCustPayload.name} ( ${newCustPayload.phone} )`);
     setNewCustName('');
     setNewCustPhone('');
@@ -543,11 +549,10 @@ export default function Home() {
       payment_info: payments.map(p => p.method === '刷卡分期' ? `刷卡分期(${p.installments}期)` : p.method).join(', ')
     };
 
-    const { error } = await supabase.from('sales_records').insert([newDbRecord]);
-
-    if (error) {
-      alert('結帳失敗：' + error.message);
-      return;
+    try {
+      await supabase.from('sales_records').insert([newDbRecord]);
+    } catch (err) {
+      console.error('寫入銷售紀錄失敗:', err);
     }
 
     await fetchSalesRecords();
@@ -560,7 +565,7 @@ export default function Home() {
     setCurrentTab('salesRecord');
   };
 
-  // 🔥 多欄位強效搜尋：支援「商品名稱」、「商品編號」、「IMEI」、「序號」、「SIM卡號/ICCID」
+  // 多欄位強效搜尋：支援「名稱」、「編號」、「IMEI」、「序號」、「SIM卡號/ICCID」
   const filteredProducts = products.filter(p => {
     const kw = searchQuery.toLowerCase().trim();
     if (!kw) return true;
@@ -585,7 +590,7 @@ export default function Home() {
     return (
       (pl.name && pl.name.toLowerCase().includes(kw)) ||
       (pl.code && pl.code.toLowerCase().includes(kw)) ||
-      (pl.telecom && pl.telecom.toLowerCase().includes(kw)) ||
+      (pl.carrier && pl.carrier.toLowerCase().includes(kw)) ||
       (pl.type && pl.type.toLowerCase().includes(kw)) ||
       (pl.monthlyFee && pl.monthlyFee.toString().includes(kw))
     );
@@ -645,7 +650,7 @@ export default function Home() {
                   className="w-full border border-dashed border-slate-300 rounded-xl p-3.5 bg-slate-50/50 hover:bg-slate-50 cursor-pointer flex justify-between items-center transition"
                 >
                   <span className="text-xs text-slate-600 font-medium">
-                    {selectedPlan ? `📌 已代入：[${selectedPlan.telecom}] ${selectedPlan.name} (傭金 $${selectedPlan.commission})` : '👉 點擊開啟方案選擇視窗'}
+                    {selectedPlan ? `📌 已代入：[${selectedPlan.carrier}] ${selectedPlan.name} (傭金 $${selectedPlan.actualCommission || selectedPlan.storeCommission || 0})` : '👉 點擊開啟方案選擇視窗'}
                   </span>
                   <span className="text-xs text-blue-600 font-semibold bg-blue-50 px-2.5 py-1 rounded-lg">選擇方案</span>
                 </div>
@@ -819,7 +824,7 @@ export default function Home() {
                             <select
                               value={pay.method}
                               onChange={(e) => {
-                                const newMethod = e.target.value as any;
+                                const newMethod = e.target.value as PaymentRow['method'];
                                 setPayments(payments.map(p => p.id === pay.id ? { ...p, method: newMethod } : p));
                               }}
                               className="bg-white border border-slate-200 rounded-lg px-2 py-1.5 font-medium text-slate-700"
@@ -1086,7 +1091,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* 🛠️ 修改銷售紀錄 Modal */}
+      {/* 修改銷售紀錄 Modal */}
       {isEditModalOpen && editingRecord && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
@@ -1199,7 +1204,7 @@ export default function Home() {
                 <label className="block text-slate-500 mb-1">項目類別</label>
                 <select
                   value={customCategory}
-                  onChange={(e) => setCustomCategory(e.target.value as any)}
+                  onChange={(e) => setCustomCategory(e.target.value as 'accessory' | 'repair')}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700"
                 >
                   <option value="accessory">自訂配件/商品</option>
@@ -1266,7 +1271,7 @@ export default function Home() {
 
             <div className="flex-1 overflow-y-auto space-y-2 pr-1">
               {filteredPlans.length === 0 ? (
-                <p className="text-center py-8 text-xs text-slate-400">目前查無方案，請確定「方案管理」頁面已有新增方案</p>
+                <p className="text-center py-8 text-xs text-slate-400">目前查無方案，請確定「方案管理」已新增方案</p>
               ) : (
                 filteredPlans.map((pl) => (
                   <div
@@ -1275,11 +1280,11 @@ export default function Home() {
                     className="p-3.5 border border-slate-100 rounded-xl hover:border-blue-400 hover:bg-blue-50/50 cursor-pointer transition flex justify-between items-center text-xs"
                   >
                     <div>
-                      <p className="font-bold text-slate-800">[{pl.telecom}] {pl.name}</p>
+                      <p className="font-bold text-slate-800">[{pl.carrier}] {pl.name}</p>
                       <p className="text-[11px] text-slate-400 mt-0.5">類型：{pl.type} | 月租：${pl.monthlyFee}</p>
                     </div>
                     <div className="text-right">
-                      <span className="text-emerald-600 font-mono font-bold block">+${pl.commission} (傭金)</span>
+                      <span className="text-emerald-600 font-mono font-bold block">+${pl.actualCommission || pl.storeCommission || 0} (傭金)</span>
                       <span className="px-2 py-0.5 bg-blue-600 text-white rounded text-[10px] font-medium mt-1 inline-block">代入方案</span>
                     </div>
                   </div>
