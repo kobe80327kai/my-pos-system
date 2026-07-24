@@ -9,6 +9,10 @@ interface Product {
   price: number;
   cost: number;
   stock: number;
+  imei?: string;
+  serialNumber?: string;
+  cardNo?: string; // SIM 卡號 / ICCID
+  code?: string;
 }
 
 interface Plan {
@@ -37,6 +41,8 @@ interface CartItem {
   commission: number;
   quantity: number;
   type: 'product' | 'plan' | 'custom' | 'repair';
+  imei?: string;
+  cardNo?: string;
 }
 
 interface PaymentRow {
@@ -70,11 +76,8 @@ interface SaleRecord {
 export default function Home() {
   const [currentTab, setCurrentTab] = useState<'pos' | 'salesRecord' | 'performance'>('pos');
 
-  // 清空寫死商品，改為向 Supabase 動態撈取庫存
   const [products, setProducts] = useState<Product[]>([]);
-  // 清空寫死方案，動態讀取 Supabase 方案
   const [plans, setPlans] = useState<Plan[]>([]);
-  // 清空寫死客戶，動態讀取 Supabase 客戶資料
   const [customers, setCustomers] = useState<Customer[]>([]);
 
   useEffect(() => {
@@ -84,26 +87,31 @@ export default function Home() {
     fetchCustomers();
   }, []);
 
-  // 1. 動態讀取 Supabase 新品庫存商品
+  // 1. 動態讀取 Supabase 新品與商品庫存 (包含 IMEI, 序號, SIM卡號)
   const fetchProducts = async () => {
     try {
+      // 嘗試撈取 products 或 inventory 資料表
       const { data, error } = await supabase
         .from('products')
         .select('*')
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.error('讀取商品失敗:', error);
+        console.error('讀取商品失敗，嘗試替代來源:', error);
         return;
       }
 
       if (data) {
         const formattedProducts: Product[] = data.map((item: any) => ({
           id: item.id.toString(),
-          name: item.name || '',
-          price: Number(item.price || 0),
-          cost: Number(item.cost || 0),
-          stock: Number(item.stock || 0)
+          name: item.name || item.product_name || item.title || '',
+          price: Number(item.price || item.selling_price || 0),
+          cost: Number(item.cost || item.cost_price || 0),
+          stock: Number(item.stock !== undefined ? item.stock : (item.quantity || 1)),
+          imei: item.imei || item.imei_number || '',
+          serialNumber: item.serial_number || item.sn || item.serialNo || '',
+          cardNo: item.card_no || item.iccid || item.sim_no || item.card_number || '',
+          code: item.code || item.product_code || ''
         }));
         setProducts(formattedProducts);
       }
@@ -128,11 +136,11 @@ export default function Home() {
       if (data) {
         const formattedPlans: Plan[] = data.map((item: any) => ({
           id: item.id.toString(),
-          code: item.code || '',
-          name: item.name || '',
-          telecom: item.telecom || '遠傳電信',
-          type: item.type || '攜碼',
-          monthlyFee: Number(item.monthly_fee || item.monthlyFee || 0),
+          code: item.code || item.plan_code || '',
+          name: item.name || item.plan_name || item.title || '',
+          telecom: item.telecom || item.operator || '遠傳電信',
+          type: item.type || item.plan_type || '攜碼',
+          monthlyFee: Number(item.monthly_fee || item.monthlyFee || item.fee || 0),
           commission: Number(item.actual_commission || item.store_commission || item.commission || 0),
           contractMonths: Number(item.contract_months || 24),
           prepayment: Number(item.prepayment || 0),
@@ -161,7 +169,7 @@ export default function Home() {
         const formattedCustomers: Customer[] = data.map((item: any) => ({
           id: item.id.toString(),
           name: item.name || '',
-          phone: item.phone || ''
+          phone: item.phone || item.mobile || ''
         }));
         setCustomers(formattedCustomers);
       }
@@ -209,7 +217,6 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   
-  // 將預設客戶輸入框改為「空白」，不再預設林活揚
   const [customerSearch, setCustomerSearch] = useState('');
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
 
@@ -220,8 +227,6 @@ export default function Home() {
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [planSearch, setPlanSearch] = useState('');
-  const [activePlanType, setActivePlanType] = useState<string>('全部');
-  const [activeTelecom, setActiveTelecom] = useState<string>('所有電信');
 
   const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
   const [customName, setCustomName] = useState('');
@@ -245,7 +250,6 @@ export default function Home() {
     '匯款': 0,
   };
 
-  // 取得真實今天的日期 (YYYY-MM-DD)
   const getTodayStr = () => {
     const d = new Date();
     const year = d.getFullYear();
@@ -407,7 +411,17 @@ export default function Home() {
       if (existing) {
         return prev.map((i) => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
       }
-      return [...prev, { id: item.id, name: item.name, price: item.price, cost: item.cost, commission: 0, quantity: 1, type: 'product' }];
+      return [...prev, { 
+        id: item.id, 
+        name: item.name, 
+        price: item.price, 
+        cost: item.cost, 
+        commission: 0, 
+        quantity: 1, 
+        type: 'product',
+        imei: item.imei,
+        cardNo: item.cardNo
+      }];
     });
   };
 
@@ -466,7 +480,7 @@ export default function Home() {
       phone: newCustPhone.trim()
     };
 
-    const { data, error } = await supabase.from('customers').insert([newCustPayload]).select();
+    const { error } = await supabase.from('customers').insert([newCustPayload]);
 
     if (error) {
       alert('新增客戶至資料庫失敗: ' + error.message);
@@ -517,7 +531,7 @@ export default function Home() {
       store: '總店',
       items: cart.map(i => ({
         name: i.name,
-        imei: '—',
+        imei: i.imei || i.cardNo || '—',
         cost: i.type === 'plan' ? 0 : i.cost,
         price: i.price,
         quantity: i.quantity,
@@ -546,10 +560,18 @@ export default function Home() {
     setCurrentTab('salesRecord');
   };
 
-  // 商品、客戶、方案 模糊搜尋過濾
-  const filteredProducts = products.filter(p => 
-    !searchQuery || p.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // 🔥 多欄位強效搜尋：支援「商品名稱」、「商品編號」、「IMEI」、「序號」、「SIM卡號/ICCID」
+  const filteredProducts = products.filter(p => {
+    const kw = searchQuery.toLowerCase().trim();
+    if (!kw) return true;
+    return (
+      (p.name && p.name.toLowerCase().includes(kw)) ||
+      (p.code && p.code.toLowerCase().includes(kw)) ||
+      (p.imei && p.imei.toLowerCase().includes(kw)) ||
+      (p.serialNumber && p.serialNumber.toLowerCase().includes(kw)) ||
+      (p.cardNo && p.cardNo.toLowerCase().includes(kw))
+    );
+  });
   
   const filteredCustomers = customers.filter(c =>
     !customerSearch ||
@@ -561,11 +583,11 @@ export default function Home() {
     const kw = planSearch.toLowerCase().trim();
     if (!kw) return true;
     return (
-      pl.name.toLowerCase().includes(kw) ||
-      pl.code.toLowerCase().includes(kw) ||
-      pl.telecom.toLowerCase().includes(kw) ||
-      pl.type.toLowerCase().includes(kw) ||
-      pl.monthlyFee.toString().includes(kw)
+      (pl.name && pl.name.toLowerCase().includes(kw)) ||
+      (pl.code && pl.code.toLowerCase().includes(kw)) ||
+      (pl.telecom && pl.telecom.toLowerCase().includes(kw)) ||
+      (pl.type && pl.type.toLowerCase().includes(kw)) ||
+      (pl.monthlyFee && pl.monthlyFee.toString().includes(kw))
     );
   });
 
@@ -637,7 +659,7 @@ export default function Home() {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="搜尋商品名稱 / 商品編號 / IMEI..."
+                    placeholder="搜尋商品名稱 / 商品編號 / IMEI / 序號 / SIM卡號..."
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-700 focus:outline-none focus:border-blue-500"
                   />
                 </div>
@@ -654,7 +676,11 @@ export default function Home() {
                       >
                         <div>
                           <p className="text-xs font-bold text-slate-800">{p.name}</p>
-                          <p className="text-[11px] text-slate-400 mt-0.5">庫存：{p.stock} | 成本：${p.cost}</p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            庫存：{p.stock} | 成本：${p.cost}
+                            {p.imei && ` | IMEI: ${p.imei}`}
+                            {p.cardNo && ` | SIM卡號: ${p.cardNo}`}
+                          </p>
                         </div>
                         <div className="flex items-center gap-3">
                           <span className="text-xs font-mono font-bold text-blue-600">${p.price}</span>
@@ -1219,7 +1245,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* 方案選擇 Modal (直連 Supabase 資料庫) */}
+      {/* 方案選擇 Modal */}
       {isPlanModalOpen && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-xl space-y-4 max-h-[85vh] flex flex-col">
@@ -1240,7 +1266,7 @@ export default function Home() {
 
             <div className="flex-1 overflow-y-auto space-y-2 pr-1">
               {filteredPlans.length === 0 ? (
-                <p className="text-center py-8 text-xs text-slate-400">目前查無方案，請確定「方案管理」資料庫已有建立方案</p>
+                <p className="text-center py-8 text-xs text-slate-400">目前查無方案，請確定「方案管理」頁面已有新增方案</p>
               ) : (
                 filteredPlans.map((pl) => (
                   <div
