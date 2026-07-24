@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 
 interface RepairRecord {
@@ -75,7 +75,7 @@ export default function RepairManagementPage() {
 
   const [activeTab, setActiveTab] = useState<'repairs' | 'parts' | 'purchases' | 'vendors'>('repairs');
 
-  // 客戶資料（預設為空陣列，直接從 Supabase 或全域讀取真實客戶）
+  // 客戶資料
   const [customers, setCustomers] = useState<Customer[]>([]);
 
   useEffect(() => {
@@ -94,7 +94,6 @@ export default function RepairManagementPage() {
       }
     } catch (err) {}
 
-    // 同步檢查 localStorage 備份
     if (typeof window !== 'undefined') {
       try {
         const keys = ['pos_customers_v3', 'pos_customers', 'customers', 'crm_customers'];
@@ -235,6 +234,19 @@ export default function RepairManagementPage() {
 
   const [custInput, setCustInput] = useState('');
   const [isCustDropdownOpen, setIsCustDropdownOpen] = useState(false);
+  const customerDropdownRef = useRef<HTMLDivElement>(null);
+
+  // 點擊外部自動關閉客戶下拉選單
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (customerDropdownRef.current && !customerDropdownRef.current.contains(event.target as Node)) {
+        setIsCustDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const [brand, setBrand] = useState('');
   const [model, setModel] = useState('');
   const [color, setColor] = useState('');
@@ -395,10 +407,16 @@ export default function RepairManagementPage() {
     }
   };
 
-  const handleDeleteRepair = (id: string) => {
-    if (confirm('確定要刪除此維修單嗎？')) {
-      setRepairs(repairs.filter(r => r.id !== id));
+  // 刪除維修單同時自動刪除對應的 sales_records 銷售紀錄
+  const handleDeleteRepair = async (repair: RepairRecord) => {
+    if (confirm(`確定要刪除此維修單 (${repair.orderNo}) 嗎？相關銷售紀錄也會一併刪除。`)) {
+      try {
+        await supabase.from('sales_records').delete().eq('order_no', repair.orderNo);
+      } catch (e) {}
+
+      setRepairs(repairs.filter(r => r.id !== repair.id));
       setSelectedRepair(null);
+      alert('刪除成功！');
     }
   };
 
@@ -888,7 +906,7 @@ export default function RepairManagementPage() {
             </div>
 
             <div className="space-y-3 text-xs">
-              <div className="relative">
+              <div className="relative" ref={customerDropdownRef}>
                 <label className="text-slate-400 block mb-1">客戶 *</label>
                 <div className="flex gap-2">
                   <input
@@ -899,7 +917,7 @@ export default function RepairManagementPage() {
                       setIsCustDropdownOpen(true);
                     }}
                     onFocus={() => { fetchCustomers(); setIsCustDropdownOpen(true); }}
-                    placeholder="搜尋客戶姓名或電話..."
+                    placeholder="點擊搜尋客戶姓名或電話..."
                     className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"
                   />
                   <button
@@ -1203,7 +1221,7 @@ export default function RepairManagementPage() {
 
             <div className="flex justify-between items-center pt-2 border-t">
               <button
-                onClick={() => handleDeleteRepair(selectedRepair.id)}
+                onClick={() => handleDeleteRepair(selectedRepair)}
                 className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-bold transition flex items-center gap-1"
               >
                 🗑️ 刪除維修單
