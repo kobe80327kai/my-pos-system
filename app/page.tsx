@@ -184,14 +184,23 @@ export default function Home() {
             customerType: item.customer_type || item.customerType || '個人貴賓',
             salesperson: item.salesperson || '管理員',
             store: item.store || '總店',
-            items: rawItems.map((it: any) => ({
-              name: it.name || '自訂項目',
-              imei: it.imei || '—',
-              cost: Number(it.cost || 0),
-              price: Number(it.price || 0),
-              quantity: Number(it.quantity || 1),
-              category: it.category || (it.name?.includes('維修') ? '維修' : '配件')
-            })),
+            items: rawItems.map((it: any) => {
+              const nameLower = (it.name || '').toLowerCase();
+              let inferredCat = it.category || '';
+              if (inferredCat.includes('維修') || nameLower.includes('維修') || nameLower.includes('換螢幕') || nameLower.includes('修') || nameLower.includes('服務費')) {
+                inferredCat = '維修';
+              } else if (!inferredCat) {
+                inferredCat = '配件';
+              }
+              return {
+                name: it.name || '自訂項目',
+                imei: it.imei || '—',
+                cost: Number(it.cost || 0),
+                price: Number(it.price || 0),
+                quantity: Number(it.quantity || 1),
+                category: inferredCat
+              };
+            }),
             totalAmount: Number(item.total_amount || item.totalAmount || 0),
             totalCost: Number(item.total_cost || item.totalCost || 0),
             profit: Number(item.profit || 0),
@@ -269,6 +278,9 @@ export default function Home() {
   const [overviewStaff, setOverviewStaff] = useState('全部人員');
   const [overviewPaymentFilter, setOverviewPaymentFilter] = useState('全部');
 
+  // 單號點擊彈出明細對話框狀態
+  const [selectedDetailRecord, setSelectedDetailRecord] = useState<SaleRecord | null>(null);
+
   const handleDatePreset = (preset: 'today' | 'week' | 'month' | 'all') => {
     setDatePreset(preset);
     const today = new Date();
@@ -318,7 +330,7 @@ export default function Home() {
   const perfTotalAmount = filteredPerfRecords.reduce((sum, r) => sum + r.totalAmount, 0);
   const perfTotalProfit = filteredPerfRecords.reduce((sum, r) => sum + r.profit, 0);
 
-  // 分類與加總統計
+  // 精準分類與加總統計
   const categoryStats = {
     '組合商品(門號)': { count: 0, amount: 0 },
     '手機': { count: 0, amount: 0 },
@@ -495,14 +507,23 @@ export default function Home() {
       customer_type: '個人貴賓',
       salesperson: '管理員',
       store: '總店',
-      items: cart.map(i => ({ 
-        name: i.name, 
-        imei: i.imei || '—', 
-        cost: i.type === 'plan' ? 0 : i.cost, 
-        price: i.price, 
-        quantity: i.quantity,
-        category: i.category || (i.type === 'plan' ? '組合商品(門號)' : i.type === 'repair' ? '維修' : '配件')
-      })),
+      items: cart.map(i => {
+        let finalCat = i.category;
+        const nameLower = (i.name || '').toLowerCase();
+        if (i.type === 'repair' || nameLower.includes('維修') || nameLower.includes('換螢幕') || nameLower.includes('修') || nameLower.includes('服務費')) {
+          finalCat = '維修';
+        } else if (!finalCat) {
+          finalCat = '配件';
+        }
+        return {
+          name: i.name,
+          imei: i.imei || '—',
+          cost: i.type === 'plan' ? 0 : i.cost,
+          price: i.price,
+          quantity: i.quantity,
+          category: finalCat
+        };
+      }),
       total_amount: subtotal,
       total_cost: totalCostVal,
       profit: totalProfit,
@@ -926,7 +947,7 @@ export default function Home() {
                       ) : (
                         filteredPerfRecords.map((r) => (
                           <tr key={r.id} className="hover:bg-slate-50/50 transition">
-                            <td className="py-3.5 px-5 font-mono font-bold text-slate-800">{r.orderNo}</td>
+                            <td className="py-3.5 px-5 font-mono font-bold text-blue-600 cursor-pointer hover:underline" onClick={() => setSelectedDetailRecord(r)}>{r.orderNo}</td>
                             <td className="py-3.5 px-5 font-mono text-slate-500">{r.date}</td>
                             <td className="py-3.5 px-5 text-slate-600">{r.salesperson}</td>
                             <td className="py-3.5 px-5 text-slate-800 font-medium">{r.customerName}</td>
@@ -992,7 +1013,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* 銷售總覽彈跳視窗 (模仿您提供的截圖設計) */}
+      {/* 銷售總覽彈跳視窗 */}
       {isSalesOverviewModalOpen && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-5xl w-full p-6 shadow-2xl space-y-5 max-h-[90vh] flex flex-col">
@@ -1055,7 +1076,7 @@ export default function Home() {
                         const itemProfit = itemAmount - itemCost;
                         return (
                           <tr key={`${r.id}-${idx}`} className="hover:bg-slate-50/50 transition">
-                            <td className="py-3 px-4 font-mono font-bold text-blue-600">{r.orderNo}</td>
+                            <td className="py-3 px-4 font-mono font-bold text-blue-600 cursor-pointer hover:underline" onClick={() => setSelectedDetailRecord(r)}>{r.orderNo}</td>
                             <td className="py-3 px-4 text-slate-600">{r.salesperson}</td>
                             <td className="py-3 px-4 font-medium text-slate-800">{it.name} <span className="text-[10px] text-slate-400">x{it.quantity}</span></td>
                             <td className="py-3 px-4 font-mono text-right font-bold text-slate-800">${itemAmount.toLocaleString()}</td>
@@ -1078,6 +1099,57 @@ export default function Home() {
             <div className="flex justify-between items-center pt-2 text-xs text-slate-500 font-medium border-t border-slate-100">
               <span>共 <strong className="text-blue-600 font-bold">{overviewRecords.length}</strong> 筆訂單</span>
               <button onClick={() => setIsSalesOverviewModalOpen(false)} className="px-5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold">關閉</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 單號點擊彈出銷貨明細細項視窗 (完全對應您的截圖) */}
+      {selectedDetailRecord && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-5">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800">銷貨明細 — {selectedDetailRecord.orderNo}</h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">{selectedDetailRecord.date} &nbsp; {selectedDetailRecord.salesperson} &nbsp; {selectedDetailRecord.customerName}</p>
+              </div>
+              <button onClick={() => setSelectedDetailRecord(null)} className="text-slate-400 hover:text-slate-600 font-bold">✕</button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 text-slate-400 uppercase font-bold tracking-wider">
+                    <th className="py-2.5 px-3">品名</th>
+                    <th className="py-2.5 px-3">顏色</th>
+                    <th className="py-2.5 px-3">IMEI</th>
+                    <th className="py-2.5 px-3 text-right">售價</th>
+                    <th className="py-2.5 px-3 text-center">付款方式</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {selectedDetailRecord.items.map((it, idx) => (
+                    <tr key={idx}>
+                      <td className="py-3 px-3 font-medium text-slate-800">{it.name}</td>
+                      <td className="py-3 px-3 text-slate-400">—</td>
+                      <td className="py-3 px-3 font-mono text-slate-500">{it.imei || '—'}</td>
+                      <td className="py-3 px-3 font-mono text-right font-bold text-slate-800">${(it.price * it.quantity).toLocaleString()}</td>
+                      <td className="py-3 px-3 text-center">
+                        <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[11px] font-medium">{selectedDetailRecord.paymentInfo}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="bg-slate-50 p-3 rounded-xl flex justify-between items-center text-xs font-bold text-slate-700 border border-slate-100">
+              <span>合計 {selectedDetailRecord.items.length} 項</span>
+              <span className="font-mono text-blue-600 text-sm">${selectedDetailRecord.totalAmount.toLocaleString()}</span>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button onClick={() => setSelectedDetailRecord(null)} className="px-6 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs">關閉</button>
             </div>
           </div>
         </div>
