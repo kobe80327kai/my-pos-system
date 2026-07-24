@@ -258,11 +258,16 @@ export default function Home() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<SaleRecord | null>(null);
 
-  // 業績報表專屬狀態
+  // 業績報表與銷售總覽彈跳視窗狀態
   const [perfStartDate, setPerfStartDate] = useState(getTodayStr());
   const [perfEndDate, setPerfEndDate] = useState(getTodayStr());
   const [perfTab, setPerfTab] = useState<'details' | 'comparison'>('details');
   const [compareType, setCompareType] = useState<'lastMonth' | 'lastYear' | 'custom'>('lastMonth');
+
+  const [isSalesOverviewModalOpen, setIsSalesOverviewModalOpen] = useState(false);
+  const [overviewMonth, setOverviewMonth] = useState('2026年7月');
+  const [overviewStaff, setOverviewStaff] = useState('全部人員');
+  const [overviewPaymentFilter, setOverviewPaymentFilter] = useState('全部');
 
   const handleDatePreset = (preset: 'today' | 'week' | 'month' | 'all') => {
     setDatePreset(preset);
@@ -313,7 +318,7 @@ export default function Home() {
   const perfTotalAmount = filteredPerfRecords.reduce((sum, r) => sum + r.totalAmount, 0);
   const perfTotalProfit = filteredPerfRecords.reduce((sum, r) => sum + r.profit, 0);
 
-  // 完美強化的分類與加總統計
+  // 分類與加總統計
   const categoryStats = {
     '組合商品(門號)': { count: 0, amount: 0 },
     '手機': { count: 0, amount: 0 },
@@ -327,7 +332,7 @@ export default function Home() {
       let cat = (it.category || '').trim();
       const nameLower = (it.name || '').toLowerCase();
       
-      if (cat === '維修' || nameLower.includes('維修') || nameLower.includes('換螢幕') || nameLower.includes('修')) {
+      if (cat === '維修' || nameLower.includes('維修') || nameLower.includes('換螢幕') || nameLower.includes('修') || nameLower.includes('服務費')) {
         cat = '維修';
       } else if (cat.includes('組') || cat.includes('門號') || nameLower.includes('方案') || nameLower.includes('門號')) {
         cat = '組合商品(門號)';
@@ -543,6 +548,13 @@ export default function Home() {
 
   const filteredCustomers = customers.filter(c => !customerSearch || c.name.toLowerCase().includes(customerSearch.toLowerCase()) || c.phone.includes(customerSearch));
   const filteredPlans = plans.filter(pl => !planSearch || pl.name.toLowerCase().includes(planSearch.toLowerCase()) || pl.carrier.toLowerCase().includes(planSearch.toLowerCase()));
+
+  // 銷售總覽視窗專屬過濾資料
+  const overviewRecords = salesRecords.filter(r => {
+    const matchStaff = overviewStaff === '全部人員' || r.salesperson === overviewStaff;
+    const matchPay = overviewPaymentFilter === '全部' || r.paymentInfo.includes(overviewPaymentFilter);
+    return matchStaff && matchPay;
+  });
 
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-y-auto bg-slate-100 text-slate-800 font-sans w-full">
@@ -847,6 +859,9 @@ export default function Home() {
               <button onClick={() => handlePerfPreset('all')} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl font-medium text-slate-600">全部</button>
             </div>
             <div className="flex items-center gap-2">
+              <button onClick={() => setIsSalesOverviewModalOpen(true)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition flex items-center gap-1.5">
+                <span>👁️</span> 銷售總覽
+              </button>
               <button onClick={() => handlePerfPreset('today')} className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-600 font-medium">今天</button>
               <button onClick={() => handlePerfPreset('month')} className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-600 font-medium">本月</button>
             </div>
@@ -972,6 +987,97 @@ export default function Home() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 銷售總覽彈跳視窗 (模仿您提供的截圖設計) */}
+      {isSalesOverviewModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-5xl w-full p-6 shadow-2xl space-y-5 max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <h3 className="text-sm font-bold text-slate-800">{overviewMonth} 銷售總覽</h3>
+              <button onClick={() => setIsSalesOverviewModalOpen(false)} className="text-slate-400 hover:text-slate-600 font-bold">✕</button>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-4 text-xs bg-slate-50 p-4 rounded-xl border border-slate-100">
+              <div className="flex items-center gap-3">
+                <span className="text-slate-400">月份：</span>
+                <select value={overviewMonth} onChange={(e) => setOverviewMonth(e.target.value)} className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 font-medium text-slate-700">
+                  <option value="2026年7月">2026年7月</option>
+                  <option value="2026年6月">2026年6月</option>
+                  <option value="全部">全部月份</option>
+                </select>
+
+                <span className="text-slate-400 ml-2">人員：</span>
+                <select value={overviewStaff} onChange={(e) => setOverviewStaff(e.target.value)} className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 font-medium text-slate-700">
+                  <option value="全部人員">全部人員</option>
+                  <option value="管理員">管理員</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-slate-400">付款方式：</span>
+                {['全部', '現金', '匯款', '刷卡', '刷卡分期'].map((method) => (
+                  <button
+                    key={method}
+                    onClick={() => setOverviewPaymentFilter(method)}
+                    className={`px-3 py-1 rounded-lg font-medium transition ${overviewPaymentFilter === method ? 'bg-blue-600 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}
+                  >
+                    {method}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto border border-slate-200/60 rounded-xl">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-400 uppercase font-bold tracking-wider">
+                    <th className="py-3 px-4">單號</th>
+                    <th className="py-3 px-4">人員</th>
+                    <th className="py-3 px-4">品名</th>
+                    <th className="py-3 px-4 text-right">收的金額</th>
+                    <th className="py-3 px-4 text-right">商品成本</th>
+                    <th className="py-3 px-4 text-right">毛利</th>
+                    <th className="py-3 px-4 text-center">付款方式</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {overviewRecords.length === 0 ? (
+                    <tr><td colSpan={7} className="text-center py-12 text-slate-400">目前沒有符合條件的銷售紀錄</td></tr>
+                  ) : (
+                    overviewRecords.flatMap((r) => 
+                      r.items.map((it, idx) => {
+                        const itemAmount = it.price * it.quantity;
+                        const itemCost = it.cost * it.quantity;
+                        const itemProfit = itemAmount - itemCost;
+                        return (
+                          <tr key={`${r.id}-${idx}`} className="hover:bg-slate-50/50 transition">
+                            <td className="py-3 px-4 font-mono font-bold text-blue-600">{r.orderNo}</td>
+                            <td className="py-3 px-4 text-slate-600">{r.salesperson}</td>
+                            <td className="py-3 px-4 font-medium text-slate-800">{it.name} <span className="text-[10px] text-slate-400">x{it.quantity}</span></td>
+                            <td className="py-3 px-4 font-mono text-right font-bold text-slate-800">${itemAmount.toLocaleString()}</td>
+                            <td className="py-3 px-4 font-mono text-right text-slate-500">${itemCost.toLocaleString()}</td>
+                            <td className={`py-3 px-4 font-mono text-right font-bold ${itemProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                              {itemProfit >= 0 ? `+$${itemProfit.toLocaleString()}` : `-$${Math.abs(itemProfit).toLocaleString()}`}
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[11px] font-medium">{r.paymentInfo}</span>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex justify-between items-center pt-2 text-xs text-slate-500 font-medium border-t border-slate-100">
+              <span>共 <strong className="text-blue-600 font-bold">{overviewRecords.length}</strong> 筆訂單</span>
+              <button onClick={() => setIsSalesOverviewModalOpen(false)} className="px-5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold">關閉</button>
             </div>
           </div>
         </div>
