@@ -19,7 +19,7 @@ interface Plan {
   id: string;
   code: string;
   name: string;
-  carrier: string; // 對接方案管理的 carrier
+  carrier: string;
   type: string;
   monthlyFee: number;
   actualCommission: number;
@@ -52,6 +52,15 @@ interface PaymentRow {
   installments: string;
 }
 
+interface SaleRecordItem {
+  name: string;
+  imei: string;
+  cost: number;
+  price: number;
+  quantity: number;
+  category?: 'combination' | 'phone' | 'usedPhone' | 'accessory' | 'repair';
+}
+
 interface SaleRecord {
   id: string;
   orderNo: string;
@@ -60,14 +69,7 @@ interface SaleRecord {
   customerType: string;
   salesperson: string;
   store: string;
-  items: {
-    name: string;
-    imei: string;
-    cost: number;
-    price: number;
-    quantity: number;
-    category?: 'combination' | 'phone' | 'usedPhone' | 'accessory' | 'repair';
-  }[];
+  items: SaleRecordItem[];
   totalAmount: number;
   totalCost: number;
   profit: number;
@@ -93,7 +95,6 @@ export default function Home() {
 
   // 1. 讀取商品庫存 (支援 Supabase 與 LocalStorage 'pos_products')
   const fetchProducts = async () => {
-    // 優先讀取 LocalStorage 快取
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem(POS_PRODUCTS_KEY);
       if (saved) {
@@ -102,8 +103,8 @@ export default function Home() {
           if (Array.isArray(parsed) && parsed.length > 0) {
             setProducts(parsed);
           }
-        } catch (e) {
-          console.error('解析本地商品資料失敗:', e);
+        } catch (err) {
+          console.error('解析本地商品資料失敗:', err);
         }
       }
     }
@@ -115,28 +116,27 @@ export default function Home() {
         .order('created_at', { ascending: false });
 
       if (data && !error && data.length > 0) {
-        const formattedProducts: Product[] = data.map((item: any) => ({
-          id: String(item.id),
-          name: item.name || item.product_name || item.title || '',
+        const formattedProducts: Product[] = data.map((item: Record<string, unknown>) => ({
+          id: String(item.id ?? ''),
+          name: String(item.name || item.product_name || item.title || ''),
           price: Number(item.price || item.selling_price || 0),
           cost: Number(item.cost || item.cost_price || 0),
           stock: Number(item.stock !== undefined ? item.stock : (item.quantity || 1)),
-          imei: item.imei || item.imei_number || '',
-          serialNumber: item.serial_number || item.sn || item.serialNo || '',
-          cardNo: item.card_no || item.iccid || item.sim_no || item.card_number || '',
-          code: item.code || item.product_code || ''
+          imei: String(item.imei || item.imei_number || ''),
+          serialNumber: String(item.serial_number || item.sn || item.serialNo || ''),
+          cardNo: String(item.card_no || item.iccid || item.sim_no || item.card_number || ''),
+          code: String(item.code || item.product_code || '')
         }));
         setProducts(formattedProducts);
         localStorage.setItem(POS_PRODUCTS_KEY, JSON.stringify(formattedProducts));
       }
     } catch (err) {
-      console.log('連線 Supabase 商品失敗，使用本地資料運作');
+      console.log('連線 Supabase 商品失敗，使用本地資料運作:', err);
     }
   };
 
-  // 2. 精準讀取方案資料 (完全對接「方案管理」的欄位 structure & 'pos_plans' LocalStorage)
+  // 2. 讀取方案資料 (對接 'pos_plans' LocalStorage & Supabase)
   const fetchPlans = async () => {
-    // 優先讀取「方案管理」寫入的 LocalStorage ('pos_plans')
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem(POS_PLANS_KEY);
       if (saved) {
@@ -145,8 +145,8 @@ export default function Home() {
           if (Array.isArray(parsed) && parsed.length > 0) {
             setPlans(parsed);
           }
-        } catch (e) {
-          console.error('解析 LocalStorage pos_plans 失敗:', e);
+        } catch (err) {
+          console.error('解析 LocalStorage pos_plans 失敗:', err);
         }
       }
     }
@@ -155,12 +155,12 @@ export default function Home() {
       const { data, error } = await supabase.from('plans').select('*').order('created_at', { ascending: false });
 
       if (data && !error && data.length > 0) {
-        const formattedPlans: Plan[] = data.map((item: any) => ({
-          id: String(item.id),
-          code: item.code || '',
-          name: item.name || '',
-          carrier: item.carrier || item.telecom || '遠傳電信',
-          type: item.type || '新申辦',
+        const formattedPlans: Plan[] = data.map((item: Record<string, unknown>) => ({
+          id: String(item.id ?? ''),
+          code: String(item.code || ''),
+          name: String(item.name || ''),
+          carrier: String(item.carrier || item.telecom || '遠傳電信'),
+          type: String(item.type || '新申辦'),
           monthlyFee: Number(item.monthly_fee || item.monthlyFee || 0),
           actualCommission: Number(item.actual_commission || item.actualCommission || 0),
           storeCommission: Number(item.store_commission || item.storeCommission || 0),
@@ -171,7 +171,7 @@ export default function Home() {
         localStorage.setItem(POS_PLANS_KEY, JSON.stringify(formattedPlans));
       }
     } catch (err) {
-      console.log('連線 Supabase 方案資料失敗，使用本地資料運作');
+      console.log('連線 Supabase 方案資料失敗，使用本地資料運作:', err);
     }
   };
 
@@ -184,10 +184,10 @@ export default function Home() {
         .order('created_at', { ascending: false });
 
       if (data && !error && data.length > 0) {
-        const formattedCustomers: Customer[] = data.map((item: any) => ({
-          id: String(item.id),
-          name: item.name || '',
-          phone: item.phone || item.mobile || ''
+        const formattedCustomers: Customer[] = data.map((item: Record<string, unknown>) => ({
+          id: String(item.id ?? ''),
+          name: String(item.name || ''),
+          phone: String(item.phone || item.mobile || '')
         }));
         setCustomers(formattedCustomers);
       }
@@ -206,19 +206,19 @@ export default function Home() {
         .order('created_at', { ascending: false });
 
       if (data && !error && data.length > 0) {
-        const formattedRecords: SaleRecord[] = data.map((item: any) => ({
-          id: item.id,
-          orderNo: item.order_no,
-          date: item.date,
-          customerName: item.customer_name,
-          customerType: item.customer_type,
-          salesperson: item.salesperson,
-          store: item.store,
-          items: typeof item.items === 'string' ? JSON.parse(item.items) : item.items,
-          totalAmount: Number(item.total_amount),
-          totalCost: Number(item.total_cost),
-          profit: Number(item.profit),
-          paymentInfo: item.payment_info
+        const formattedRecords: SaleRecord[] = data.map((item: Record<string, unknown>) => ({
+          id: String(item.id ?? ''),
+          orderNo: String(item.order_no || ''),
+          date: String(item.date || ''),
+          customerName: String(item.customer_name || ''),
+          customerType: String(item.customer_type || ''),
+          salesperson: String(item.salesperson || ''),
+          store: String(item.store || ''),
+          items: typeof item.items === 'string' ? JSON.parse(item.items) : (item.items as SaleRecordItem[]),
+          totalAmount: Number(item.total_amount || 0),
+          totalCost: Number(item.total_cost || 0),
+          profit: Number(item.profit || 0),
+          paymentInfo: String(item.payment_info || '')
         }));
         setSalesRecords(formattedRecords);
       }
@@ -367,7 +367,9 @@ export default function Home() {
     if (confirm('確定要刪除這筆銷售紀錄嗎？')) {
       try {
         await supabase.from('sales_records').delete().eq('id', id);
-      } catch (e) {}
+      } catch (err) {
+        console.error('刪除銷售紀錄失敗:', err);
+      }
 
       setSalesRecords(prev => prev.filter(r => r.id !== id));
       setIsEditModalOpen(false);
@@ -398,7 +400,9 @@ export default function Home() {
 
     try {
       await supabase.from('sales_records').update(updatedDbPayload).eq('id', editingRecord.id);
-    } catch (e) {}
+    } catch (err) {
+      console.error('更新銷售紀錄失敗:', err);
+    }
 
     fetchSalesRecords();
     setIsEditModalOpen(false);
@@ -485,7 +489,9 @@ export default function Home() {
 
     try {
       await supabase.from('customers').insert([{ name: newCustPayload.name, phone: newCustPayload.phone }]);
-    } catch (e) {}
+    } catch (err) {
+      console.error('新增客戶失敗:', err);
+    }
 
     setCustomers(prev => [newCustPayload, ...prev]);
     setCustomerSearch(`${newCustPayload.name} ( ${newCustPayload.phone} )`);
@@ -545,7 +551,9 @@ export default function Home() {
 
     try {
       await supabase.from('sales_records').insert([newDbRecord]);
-    } catch (e) {}
+    } catch (err) {
+      console.error('寫入銷售紀錄失敗:', err);
+    }
 
     await fetchSalesRecords();
     setExpandedRowId(recordId);
@@ -557,7 +565,7 @@ export default function Home() {
     setCurrentTab('salesRecord');
   };
 
-  // 🔥 多欄位強效比對搜尋：支援「名稱」、「編號」、「IMEI」、「序號」、「SIM卡號/ICCID」
+  // 多欄位強效搜尋：支援「名稱」、「編號」、「IMEI」、「序號」、「SIM卡號/ICCID」
   const filteredProducts = products.filter(p => {
     const kw = searchQuery.toLowerCase().trim();
     if (!kw) return true;
@@ -816,7 +824,7 @@ export default function Home() {
                             <select
                               value={pay.method}
                               onChange={(e) => {
-                                const newMethod = e.target.value as any;
+                                const newMethod = e.target.value as PaymentRow['method'];
                                 setPayments(payments.map(p => p.id === pay.id ? { ...p, method: newMethod } : p));
                               }}
                               className="bg-white border border-slate-200 rounded-lg px-2 py-1.5 font-medium text-slate-700"
@@ -1083,7 +1091,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* 🛠️ 修改銷售紀錄 Modal */}
+      {/* 修改銷售紀錄 Modal */}
       {isEditModalOpen && editingRecord && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
@@ -1196,7 +1204,7 @@ export default function Home() {
                 <label className="block text-slate-500 mb-1">項目類別</label>
                 <select
                   value={customCategory}
-                  onChange={(e) => setCustomCategory(e.target.value as any)}
+                  onChange={(e) => setCustomCategory(e.target.value as 'accessory' | 'repair')}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700"
                 >
                   <option value="accessory">自訂配件/商品</option>
