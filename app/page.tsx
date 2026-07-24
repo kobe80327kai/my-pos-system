@@ -823,7 +823,7 @@ export default function ControlPage() {
                                 onClick={() => toggleExpandRecord(r.id)}
                                 className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-bold transition"
                               >
-                                {isExpanded ? '收起明細'檢視明細'}
+                                {isExpanded ? '收起明細' : '檢視明細'}
                               </button>
                             </td>
                           </tr>
@@ -956,7 +956,7 @@ export default function ControlPage() {
                 />
               </div>
               <div>
-                <label className="text-slate-400 block mb-1">成本 ($)</label>
+                <label className="text-slate-400 block np-1">成本 ($)</label>
                 <input
                   type="number"
                   value={customCost}
