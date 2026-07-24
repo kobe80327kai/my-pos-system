@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase';
 
 interface Product {
   id: string;
@@ -52,15 +52,6 @@ interface PaymentRow {
   installments: string;
 }
 
-interface SaleRecordItem {
-  name: string;
-  imei: string;
-  cost: number;
-  price: number;
-  quantity: number;
-  category?: 'combination' | 'phone' | 'usedPhone' | 'accessory' | 'repair';
-}
-
 interface SaleRecord {
   id: string;
   orderNo: string;
@@ -69,7 +60,14 @@ interface SaleRecord {
   customerType: string;
   salesperson: string;
   store: string;
-  items: SaleRecordItem[];
+  items: {
+    name: string;
+    imei: string;
+    cost: number;
+    price: number;
+    quantity: number;
+    category?: 'combination' | 'phone' | 'usedPhone' | 'accessory' | 'repair';
+  }[];
   totalAmount: number;
   totalCost: number;
   profit: number;
@@ -77,7 +75,7 @@ interface SaleRecord {
 }
 
 const POS_PLANS_KEY = 'pos_plans';
-const POS_PRODUCTS_KEY = 'pos_products';
+const POSSIBLE_PRODUCT_KEYS = ['pos_products', 'products', 'inventory', 'store_products'];
 
 export default function Home() {
   const [currentTab, setCurrentTab] = useState<'pos' | 'salesRecord' | 'performance'>('pos');
@@ -93,22 +91,43 @@ export default function Home() {
     fetchCustomers();
   }, []);
 
-  // 1. 讀取商品庫存 (支援 Supabase 與 LocalStorage 'pos_products')
+  // 1. 強效讀取商品庫存：完美對接多種可能的 LocalStorage Key 與 Supabase
   const fetchProducts = async () => {
+    let loadedProducts: Product[] = [];
+
+    // 優先從 LocalStorage 多個可能鍵值讀取快取
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(POS_PRODUCTS_KEY);
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setProducts(parsed);
+      for (const key of POSSIBLE_PRODUCT_KEYS) {
+        const saved = localStorage.getItem(key);
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              loadedProducts = parsed.map((item: any) => ({
+                id: String(item.id || Date.now() + Math.random()),
+                name: item.name || item.product_name || item.title || '',
+                price: Number(item.price || item.selling_price || item.retailPrice || 0),
+                cost: Number(item.cost || item.cost_price || item.purchaseCost || 0),
+                stock: Number(item.stock !== undefined ? item.stock : (item.quantity || 1)),
+                imei: item.imei || item.imei_number || '',
+                serialNumber: item.serial_number || item.sn || item.serialNo || '',
+                cardNo: item.card_no || item.iccid || item.sim_no || item.card_number || '',
+                code: item.code || item.product_code || ''
+              }));
+              break;
+            }
+          } catch (e) {
+            console.error(`解析本地商品資料失敗 (${key}):`, e);
           }
-        } catch (err) {
-          console.error('解析本地商品資料失敗:', err);
         }
       }
     }
 
+    if (loadedProducts.length > 0) {
+      setProducts(loadedProducts);
+    }
+
+    // 同步從 Supabase 抓取最新商品
     try {
       const { data, error } = await supabase
         .from('products')
@@ -116,26 +135,26 @@ export default function Home() {
         .order('created_at', { ascending: false });
 
       if (data && !error && data.length > 0) {
-        const formattedProducts: Product[] = data.map((item: Record<string, unknown>) => ({
-          id: String(item.id ?? ''),
-          name: String(item.name || item.product_name || item.title || ''),
+        const formattedProducts: Product[] = data.map((item: any) => ({
+          id: String(item.id),
+          name: item.name || item.product_name || item.title || '',
           price: Number(item.price || item.selling_price || 0),
           cost: Number(item.cost || item.cost_price || 0),
           stock: Number(item.stock !== undefined ? item.stock : (item.quantity || 1)),
-          imei: String(item.imei || item.imei_number || ''),
-          serialNumber: String(item.serial_number || item.sn || item.serialNo || ''),
-          cardNo: String(item.card_no || item.iccid || item.sim_no || item.card_number || ''),
-          code: String(item.code || item.product_code || '')
+          imei: item.imei || item.imei_number || '',
+          serialNumber: item.serial_number || item.sn || item.serialNo || '',
+          cardNo: item.card_no || item.iccid || item.sim_no || item.card_number || '',
+          code: item.code || item.product_code || ''
         }));
         setProducts(formattedProducts);
-        localStorage.setItem(POS_PRODUCTS_KEY, JSON.stringify(formattedProducts));
+        localStorage.setItem('pos_products', JSON.stringify(formattedProducts));
       }
     } catch (err) {
-      console.log('連線 Supabase 商品失敗，使用本地資料運作:', err);
+      console.log('連線 Supabase 商品失敗，使用本地資料運作');
     }
   };
 
-  // 2. 讀取方案資料 (對接 'pos_plans' LocalStorage & Supabase)
+  // 2. 精準讀取方案資料
   const fetchPlans = async () => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem(POS_PLANS_KEY);
@@ -145,8 +164,8 @@ export default function Home() {
           if (Array.isArray(parsed) && parsed.length > 0) {
             setPlans(parsed);
           }
-        } catch (err) {
-          console.error('解析 LocalStorage pos_plans 失敗:', err);
+        } catch (e) {
+          console.error('解析 LocalStorage pos_plans 失敗:', e);
         }
       }
     }
@@ -155,12 +174,12 @@ export default function Home() {
       const { data, error } = await supabase.from('plans').select('*').order('created_at', { ascending: false });
 
       if (data && !error && data.length > 0) {
-        const formattedPlans: Plan[] = data.map((item: Record<string, unknown>) => ({
-          id: String(item.id ?? ''),
-          code: String(item.code || ''),
-          name: String(item.name || ''),
-          carrier: String(item.carrier || item.telecom || '遠傳電信'),
-          type: String(item.type || '新申辦'),
+        const formattedPlans: Plan[] = data.map((item: any) => ({
+          id: String(item.id),
+          code: item.code || '',
+          name: item.name || '',
+          carrier: item.carrier || item.telecom || '遠傳電信',
+          type: item.type || '新申辦',
           monthlyFee: Number(item.monthly_fee || item.monthlyFee || 0),
           actualCommission: Number(item.actual_commission || item.actualCommission || 0),
           storeCommission: Number(item.store_commission || item.storeCommission || 0),
@@ -171,7 +190,7 @@ export default function Home() {
         localStorage.setItem(POS_PLANS_KEY, JSON.stringify(formattedPlans));
       }
     } catch (err) {
-      console.log('連線 Supabase 方案資料失敗，使用本地資料運作:', err);
+      console.log('連線 Supabase 方案資料失敗，使用本地資料運作');
     }
   };
 
@@ -184,10 +203,10 @@ export default function Home() {
         .order('created_at', { ascending: false });
 
       if (data && !error && data.length > 0) {
-        const formattedCustomers: Customer[] = data.map((item: Record<string, unknown>) => ({
-          id: String(item.id ?? ''),
-          name: String(item.name || ''),
-          phone: String(item.phone || item.mobile || '')
+        const formattedCustomers: Customer[] = data.map((item: any) => ({
+          id: String(item.id),
+          name: item.name || '',
+          phone: item.phone || item.mobile || ''
         }));
         setCustomers(formattedCustomers);
       }
@@ -206,19 +225,19 @@ export default function Home() {
         .order('created_at', { ascending: false });
 
       if (data && !error && data.length > 0) {
-        const formattedRecords: SaleRecord[] = data.map((item: Record<string, unknown>) => ({
-          id: String(item.id ?? ''),
-          orderNo: String(item.order_no || ''),
-          date: String(item.date || ''),
-          customerName: String(item.customer_name || ''),
-          customerType: String(item.customer_type || ''),
-          salesperson: String(item.salesperson || ''),
-          store: String(item.store || ''),
-          items: typeof item.items === 'string' ? JSON.parse(item.items) : (item.items as SaleRecordItem[]),
-          totalAmount: Number(item.total_amount || 0),
-          totalCost: Number(item.total_cost || 0),
-          profit: Number(item.profit || 0),
-          paymentInfo: String(item.payment_info || '')
+        const formattedRecords: SaleRecord[] = data.map((item: any) => ({
+          id: item.id,
+          orderNo: item.order_no,
+          date: item.date,
+          customerName: item.customer_name,
+          customerType: item.customer_type,
+          salesperson: item.salesperson,
+          store: item.store,
+          items: typeof item.items === 'string' ? JSON.parse(item.items) : item.items,
+          totalAmount: Number(item.total_amount),
+          totalCost: Number(item.total_cost),
+          profit: Number(item.profit),
+          paymentInfo: item.payment_info
         }));
         setSalesRecords(formattedRecords);
       }
@@ -367,9 +386,7 @@ export default function Home() {
     if (confirm('確定要刪除這筆銷售紀錄嗎？')) {
       try {
         await supabase.from('sales_records').delete().eq('id', id);
-      } catch (err) {
-        console.error('刪除銷售紀錄失敗:', err);
-      }
+      } catch (e) {}
 
       setSalesRecords(prev => prev.filter(r => r.id !== id));
       setIsEditModalOpen(false);
@@ -400,9 +417,7 @@ export default function Home() {
 
     try {
       await supabase.from('sales_records').update(updatedDbPayload).eq('id', editingRecord.id);
-    } catch (err) {
-      console.error('更新銷售紀錄失敗:', err);
-    }
+    } catch (e) {}
 
     fetchSalesRecords();
     setIsEditModalOpen(false);
@@ -489,9 +504,7 @@ export default function Home() {
 
     try {
       await supabase.from('customers').insert([{ name: newCustPayload.name, phone: newCustPayload.phone }]);
-    } catch (err) {
-      console.error('新增客戶失敗:', err);
-    }
+    } catch (e) {}
 
     setCustomers(prev => [newCustPayload, ...prev]);
     setCustomerSearch(`${newCustPayload.name} ( ${newCustPayload.phone} )`);
@@ -551,9 +564,7 @@ export default function Home() {
 
     try {
       await supabase.from('sales_records').insert([newDbRecord]);
-    } catch (err) {
-      console.error('寫入銷售紀錄失敗:', err);
-    }
+    } catch (e) {}
 
     await fetchSalesRecords();
     setExpandedRowId(recordId);
@@ -565,7 +576,7 @@ export default function Home() {
     setCurrentTab('salesRecord');
   };
 
-  // 多欄位強效搜尋：支援「名稱」、「編號」、「IMEI」、「序號」、「SIM卡號/ICCID」
+  // 多欄位強效比對搜尋：支援「名稱」、「編號」、「IMEI」、「序號」、「SIM卡號/ICCID」
   const filteredProducts = products.filter(p => {
     const kw = searchQuery.toLowerCase().trim();
     if (!kw) return true;
@@ -657,7 +668,10 @@ export default function Home() {
               </div>
 
               <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/60 space-y-4">
-                <h2 className="text-xs font-bold text-slate-700">加入商品</h2>
+                <div className="flex justify-between items-center">
+                  <h2 className="text-xs font-bold text-slate-700">加入商品</h2>
+                  <button onClick={fetchProducts} className="text-xs text-blue-600 hover:underline">🔄 重新整理庫存</button>
+                </div>
                 <div className="relative">
                   <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">🔍</span>
                   <input
@@ -671,7 +685,7 @@ export default function Home() {
 
                 <div className="space-y-2 pt-2 max-h-80 overflow-y-auto">
                   {filteredProducts.length === 0 ? (
-                    <p className="text-center py-6 text-xs text-slate-400">目前庫存內無符合的商品</p>
+                    <p className="text-center py-6 text-xs text-slate-400">目前庫存內無符合的商品（請先至庫存管理新增商品）</p>
                   ) : (
                     filteredProducts.map((p) => (
                       <div
@@ -824,7 +838,7 @@ export default function Home() {
                             <select
                               value={pay.method}
                               onChange={(e) => {
-                                const newMethod = e.target.value as PaymentRow['method'];
+                                const newMethod = e.target.value as any;
                                 setPayments(payments.map(p => p.id === pay.id ? { ...p, method: newMethod } : p));
                               }}
                               className="bg-white border border-slate-200 rounded-lg px-2 py-1.5 font-medium text-slate-700"
@@ -1204,7 +1218,7 @@ export default function Home() {
                 <label className="block text-slate-500 mb-1">項目類別</label>
                 <select
                   value={customCategory}
-                  onChange={(e) => setCustomCategory(e.target.value as 'accessory' | 'repair')}
+                  onChange={(e) => setCustomCategory(e.target.value as any)}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700"
                 >
                   <option value="accessory">自訂配件/商品</option>
