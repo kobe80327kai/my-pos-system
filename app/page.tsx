@@ -168,8 +168,10 @@ export default function POSSystem() {
   const filteredCustomers = customersList.filter(c => c.name.includes(customerSearch) || c.phone.includes(customerSearch));
 
   return (
-    <div className="flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">
-      {/* 左側選單 (完整保留原有介面) */}
+    /* 這裡加上 fixed inset-0 z-50 完美蓋掉 layout.tsx 裡面壞掉的舊側邊欄 */
+    <div className="fixed inset-0 z-50 flex h-screen w-full bg-slate-950 text-slate-100 font-sans overflow-hidden">
+      
+      {/* 左側選單 (完整保留原有介面，現在只會顯示這一組) */}
       <div className="w-64 bg-slate-950 flex flex-col justify-between border-r border-slate-800/60 shrink-0">
         <div className="p-5 space-y-6">
           <div className="flex items-center gap-3">
