@@ -34,12 +34,39 @@ export default function ReportsPage() {
     return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
   };
 
+  const getMonthStartEnd = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = d.getMonth();
+    const start = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    const end = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    return { start, end };
+  };
+
+  const getLastMonthStartEnd = () => {
+    const d = new Date();
+    const year = d.getMonth() === 0 ? d.getFullYear() - 1 : d.getFullYear();
+    const month = d.getMonth() === 0 ? 11 : d.getMonth() - 1;
+    const start = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    const end = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    return { start, end };
+  };
+
   const [selectedDate, setSelectedDate] = useState(getTodayStr());
   const [salesRecords, setSalesRecords] = useState<SalesRecord[]>([]);
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
 
   // 盈餘報表時間篩選狀態 (本月 / 上月 / 自訂)
   const [profitTab, setProfitTab] = useState<'month' | 'lastMonth' | 'custom'>('month');
+  const monthRange = getMonthStartEnd();
+  const [customStartDate, setCustomStartDate] = useState(monthRange.start);
+  const [customEndDate, setCustomEndDate] = useState(monthRange.end);
+
+  // 盈餘報表專用資料
+  const [profitSales, setProfitSales] = useState<SalesRecord[]>([]);
+  const [profitExpenses, setProfitExpenses] = useState<ExpenseRecord[]>([]);
 
   // 彈跳明細視窗狀態
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
@@ -53,30 +80,61 @@ export default function ReportsPage() {
   const [expensePaymentMethod, setExpensePaymentMethod] = useState('現金');
   const [expenseRemark, setExpenseRemark] = useState('');
 
+  // 每日看板資料載入
   useEffect(() => {
-    fetchData();
+    fetchDailyData();
   }, [selectedDate]);
 
-  const fetchData = async () => {
+  const fetchDailyData = async () => {
     try {
       const formattedDate = selectedDate.replace(/\//g, '-');
-      
-      const { data: salesData } = await supabase
-        .from('sales_records')
-        .select('*')
-        .ilike('date', `%${formattedDate}%`);
+      const { data: salesData } = await supabase.from('sales_records').select('*').ilike('date', `%${formattedDate}%`);
+      if (salesData) setSalesRecords(salesData);
 
-      if (salesData) {
-        setSalesRecords(salesData);
+      const { data: expData } = await supabase.from('expenses').select('*').ilike('date', `%${formattedDate}%`);
+      if (expData) setExpenses(expData);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // 盈餘報表區間資料載入
+  useEffect(() => {
+    fetchProfitData();
+  }, [profitTab, customStartDate, customEndDate]);
+
+  const fetchProfitData = async () => {
+    let start = '';
+    let end = '';
+    if (profitTab === 'month') {
+      const m = getMonthStartEnd();
+      start = m.start;
+      end = m.end;
+    } else if (profitTab === 'lastMonth') {
+      const lm = getLastMonthStartEnd();
+      start = lm.start;
+      end = lm.end;
+    } else {
+      start = customStartDate;
+      end = customEndDate;
+    }
+
+    try {
+      // 讀取所有資料再依區間過濾確保準確
+      const { data: allSales } = await supabase.from('sales_records').select('*');
+      if (allSales) {
+        setProfitSales(allSales.filter(s => {
+          const d = s.date?.substring(0, 10);
+          return (!start || d >= start) && (!end || d <= end);
+        }));
       }
 
-      const { data: expData } = await supabase
-        .from('expenses')
-        .select('*')
-        .ilike('date', `%${formattedDate}%`);
-
-      if (expData) {
-        setExpenses(expData);
+      const { data: allExp } = await supabase.from('expenses').select('*');
+      if (allExp) {
+        setProfitExpenses(allExp.filter(e => {
+          const d = e.date?.substring(0, 10);
+          return (!start || d >= start) && (!end || d <= end);
+        }));
       }
     } catch (e) {
       console.error(e);
@@ -102,6 +160,7 @@ export default function ReportsPage() {
     try {
       await supabase.from('expenses').insert([newExp]);
       setExpenses([newExp, ...expenses]);
+      fetchProfitData();
       alert('新增成功！');
       setIsExpenseModalOpen(false);
       setExpenseAmount(0);
@@ -116,11 +175,11 @@ export default function ReportsPage() {
   const totalExpenseAmount = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
   const netIncome = totalSalesAmount - totalExpenseAmount;
 
-  // 雜收計算（分類為雜收的支出或收入，此處以支出內的雜收或獨立紀錄為主，若無則為0）
-  const totalMiscellaneousIncome = 0; 
-
-  // 盈餘計算 (銷售金額 + 雜收 - 雜支，已拿掉佣金)
-  const totalProfit = totalSalesAmount + totalMiscellaneousIncome - totalExpenseAmount;
+  // 盈餘報表區間加總
+  const profitTotalSales = profitSales.reduce((sum, r) => sum + (r.total_amount || 0), 0);
+  const profitTotalExp = profitExpenses.filter(e => e.category !== '雜收').reduce((sum, e) => sum + (e.amount || 0), 0);
+  const profitTotalMiscInc = profitExpenses.filter(e => e.category === '雜收').reduce((sum, e) => sum + (e.amount || 0), 0);
+  const totalProfit = profitTotalSales + profitTotalMiscInc - profitTotalExp;
 
   const paymentStats: { [key: string]: { count: number; total: number; items: any[] } } = {
     '現金': { count: 0, total: 0, items: [] },
@@ -233,7 +292,6 @@ export default function ReportsPage() {
             <span className="text-xs font-mono font-bold text-slate-600">{salesRecords.length} 筆 <strong className="text-emerald-600">${totalSalesAmount.toLocaleString()}</strong></span>
           </div>
 
-          {/* 各付款方式子項目 */}
           <div className="space-y-2 pt-2">
             {Object.entries(paymentStats).map(([method, data]) => (
               data.count > 0 && (
@@ -297,14 +355,14 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* 最下方盈餘報表區塊 (已移除佣金欄位) */}
+      {/* 最下方盈餘報表區塊 (已支援自訂日期選取) */}
       <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-6">
         <div className="flex flex-wrap justify-between items-center gap-4 border-b pb-4">
           <div className="flex items-center gap-2">
             <span className="text-blue-600 font-bold">📈</span>
             <h3 className="text-sm font-bold text-slate-800">盈餘報表</h3>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <div className="flex bg-slate-100 p-1 rounded-2xl text-xs font-bold">
               <button
                 onClick={() => setProfitTab('month')}
@@ -325,26 +383,48 @@ export default function ReportsPage() {
                 自訂
               </button>
             </div>
-            <span className="text-xs text-slate-400 font-mono">2026-07-01 ~ 2026-07-24</span>
+
+            {/* 如果選擇自訂，顯示可點擊的日期輸入框 */}
+            {profitTab === 'custom' ? (
+              <div className="flex items-center gap-2 text-xs font-mono bg-slate-50 border border-slate-200 rounded-2xl px-3 py-1.5">
+                <input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  className="bg-transparent outline-none cursor-pointer"
+                />
+                <span>~</span>
+                <input
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  className="bg-transparent outline-none cursor-pointer"
+                />
+              </div>
+            ) : (
+              <span className="text-xs text-slate-400 font-mono">
+                {profitTab === 'month' ? `${monthRange.start} ~ ${monthRange.end}` : `${getLastMonthStartEnd().start} ~ ${getLastMonthStartEnd().end}`}
+              </span>
+            )}
           </div>
           <span className="px-3 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-xs font-bold">管理員</span>
         </div>
 
-        {/* 4張計算卡片 (銷售金額、雜收、雜支、盈餘，已拿掉佣金) */}
+        {/* 4張計算卡片 */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-slate-50/80 p-5 rounded-2xl border border-slate-100 text-center space-y-2">
             <span className="text-xs font-bold text-slate-500 block">銷售金額</span>
-            <h4 className="text-2xl font-extrabold font-mono text-slate-800">${totalSalesAmount.toLocaleString()}</h4>
+            <h4 className="text-2xl font-extrabold font-mono text-slate-800">${profitTotalSales.toLocaleString()}</h4>
           </div>
 
           <div className="bg-emerald-50/50 p-5 rounded-2xl border border-emerald-100 text-center space-y-2">
             <span className="text-xs font-bold text-emerald-700 block">雜收</span>
-            <h4 className="text-2xl font-extrabold font-mono text-emerald-600">${totalMiscellaneousIncome.toLocaleString()}</h4>
+            <h4 className="text-2xl font-extrabold font-mono text-emerald-600">${profitTotalMiscInc.toLocaleString()}</h4>
           </div>
 
           <div className="bg-rose-50/50 p-5 rounded-2xl border border-rose-100 text-center space-y-2">
             <span className="text-xs font-bold text-rose-700 block">雜支</span>
-            <h4 className="text-2xl font-extrabold font-mono text-rose-600">-${totalExpenseAmount.toLocaleString()}</h4>
+            <h4 className="text-2xl font-extrabold font-mono text-rose-600">-${profitTotalExp.toLocaleString()}</h4>
           </div>
 
           <div className="bg-emerald-50 p-5 rounded-2xl border border-emerald-200 text-center space-y-2 shadow-sm">
