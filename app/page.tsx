@@ -75,6 +75,17 @@ interface SaleRecord {
 }
 
 const POS_PLANS_KEY = 'pos_plans';
+// 涵蓋所有可能被庫存管理頁面使用的 LocalStorage Key 集合
+const ALL_POSSIBLE_PRODUCT_KEYS = [
+  'inventory_products',
+  'products',
+  'pos_products',
+  'stock_products',
+  'new_products',
+  'inventory',
+  'shop_products',
+  'pos_inventory_products_v1'
+];
 
 export default function Home() {
   const [currentTab, setCurrentTab] = useState<'pos' | 'salesRecord' | 'performance'>('pos');
@@ -88,33 +99,48 @@ export default function Home() {
     fetchPlans();
     fetchProducts();
     fetchCustomers();
+
+    // 監聽視窗焦點與 Storage 變更，確保切換頁籤或返回時自動同步庫存
+    const handleStorageChange = () => {
+      fetchProducts();
+    };
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('focus', handleStorageChange);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('focus', handleStorageChange);
+    };
   }, []);
 
-  // 1. 精準抓取庫存管理頁面的 products 資料表與 LocalStorage
+  // 強效全方位庫存抓取機制：掃描所有可能的 LocalStorage 鑰匙與 Supabase
   const fetchProducts = async () => {
     let loadedProducts: Product[] = [];
 
-    // 優先檢查本地 LocalStorage 備援
+    // 1. 輪詢檢查所有可能儲存商品資料的 LocalStorage 鑰匙
     if (typeof window !== 'undefined') {
-      const savedProducts = localStorage.getItem('products') || localStorage.getItem('pos_products');
-      if (savedProducts) {
-        try {
-          const parsed = JSON.parse(savedProducts);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            loadedProducts = parsed.map((item: any) => ({
-              id: String(item.id || item.code || Math.random()),
-              name: item.name || item.product_name || item.title || '',
-              price: Number(item.price || item.selling_price || item.retailPrice || 0),
-              cost: Number(item.cost || item.cost_price || 0),
-              stock: Number(item.stock !== undefined ? item.stock : (item.quantity || 1)),
-              imei: item.imei || item.imei_number || '',
-              serialNumber: item.serial_number || item.sn || '',
-              cardNo: item.card_no || item.iccid || item.sim_no || '',
-              code: item.code || ''
-            }));
+      for (const key of ALL_POSSIBLE_PRODUCT_KEYS) {
+        const saved = localStorage.getItem(key);
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              loadedProducts = parsed.map((item: any) => ({
+                id: String(item.id || item.code || Math.random()),
+                name: item.name || item.product_name || item.title || '',
+                price: Number(item.price || item.selling_price || item.retailPrice || item.sale_price || 0),
+                cost: Number(item.cost || item.cost_price || item.purchaseCost || 0),
+                stock: Number(item.stock !== undefined ? item.stock : (item.quantity || 1)),
+                imei: item.imei || item.imei_number || '',
+                serialNumber: item.serial_number || item.sn || item.serialNo || '',
+                cardNo: item.card_no || item.iccid || item.sim_no || item.card_number || '',
+                code: item.code || item.product_code || ''
+              }));
+              break;
+            }
+          } catch (e) {
+            console.error(`解析本地商品失敗 (${key}):`, e);
           }
-        } catch (e) {
-          console.error('解析本地商品失敗:', e);
         }
       }
     }
@@ -123,31 +149,37 @@ export default function Home() {
       setProducts(loadedProducts);
     }
 
-    // 從 Supabase 的 products 資料表抓取最新庫存
-    try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .order('created_at', { ascending: false });
+    // 2. 同步嘗試從 Supabase 的 products 或 inventory 表格拉取
+    const possibleTables = ['products', 'inventory', 'items', 'stock'];
+    for (const tableName of possibleTables) {
+      try {
+        const { data, error } = await supabase
+          .from(tableName)
+          .select('*')
+          .order('created_at', { ascending: false });
 
-      if (!error && data && data.length > 0) {
-        const formattedProducts: Product[] = data.map((item: any) => ({
-          id: String(item.id),
-          name: item.name || item.product_name || '',
-          price: Number(item.price || item.selling_price || 0),
-          cost: Number(item.cost || item.cost_price || 0),
-          stock: Number(item.stock !== undefined ? item.stock : 1),
-          imei: item.imei || item.imei_number || '',
-          serialNumber: item.serial_number || item.sn || '',
-          cardNo: item.card_no || item.iccid || item.sim_no || '',
-          code: item.code || ''
-        }));
-        setProducts(formattedProducts);
-        localStorage.setItem('products', JSON.stringify(formattedProducts));
-        localStorage.setItem('pos_products', JSON.stringify(formattedProducts));
+        if (!error && data && data.length > 0) {
+          const formattedProducts: Product[] = data.map((item: any) => ({
+            id: String(item.id || item.code || Math.random()),
+            name: item.name || item.product_name || item.title || '',
+            price: Number(item.price || item.selling_price || item.retailPrice || item.sale_price || 0),
+            cost: Number(item.cost || item.cost_price || item.purchaseCost || 0),
+            stock: Number(item.stock !== undefined ? item.stock : (item.quantity || 1)),
+            imei: item.imei || item.imei_number || '',
+            serialNumber: item.serial_number || item.sn || item.serialNo || '',
+            cardNo: item.card_no || item.iccid || item.sim_no || item.card_number || '',
+            code: item.code || item.product_code || ''
+          }));
+          setProducts(formattedProducts);
+          // 雙向同步回常見的 Key 確保兩邊一致
+          localStorage.setItem('products', JSON.stringify(formattedProducts));
+          localStorage.setItem('inventory_products', JSON.stringify(formattedProducts));
+          localStorage.setItem('pos_products', JSON.stringify(formattedProducts));
+          return;
+        }
+      } catch (err) {
+        // 繼續嘗試下一個表格
       }
-    } catch (err) {
-      console.log('Supabase products 連線失敗，使用本地快取');
     }
   };
 
@@ -565,7 +597,7 @@ export default function Home() {
     setCurrentTab('salesRecord');
   };
 
-  // 搜尋過濾
+  // 多欄位強效比對搜尋
   const filteredProducts = products.filter(p => {
     const kw = searchQuery.toLowerCase().trim();
     if (!kw) return true;
