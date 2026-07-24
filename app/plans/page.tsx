@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
+// 修正：路徑從 '../../lib/supabase' 改為 '../lib/supabase'，解決 Vercel Module not found 錯誤
+import { supabase } from '../lib/supabase';
 
 interface Plan {
   id: string;
@@ -17,32 +18,30 @@ interface Plan {
   actualCommission: number;
 }
 
+const LOCAL_STORAGE_KEY = 'pos_plans';
+
 export default function PlansPage() {
-  const [plans, setPlans] = useState<Plan[]>([
-    {
-      id: '1',
-      code: 'PLN0001',
-      name: 'S',
-      carrier: '遠傳電信',
-      type: '新申辦',
-      network: '5G',
-      monthlyFee: 699,
-      contractPeriod: 24,
-      prepayment: 0,
-      storeCommission: 800,
-      actualCommission: 1200,
-    },
-  ]);
+  const [plans, setPlans] = useState<Plan[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          console.error('解析 localStorage 失敗:', e);
+        }
+      }
+    }
+    return [];
+  });
 
   const [searchQuery, setSearchQuery] = useState('');
   const [carrierFilter, setCarrierFilter] = useState('全部電信');
   const [typeFilter, setTypeFilter] = useState('全部類型');
 
-  // Modal 狀態 (包含新增與編輯)
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
 
-  // 表單資料
   const [formData, setFormData] = useState({
     code: '',
     name: '',
@@ -57,6 +56,10 @@ export default function PlansPage() {
   });
 
   useEffect(() => {
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(plans));
+  }, [plans]);
+
+  useEffect(() => {
     fetchPlans();
   }, []);
 
@@ -64,13 +67,13 @@ export default function PlansPage() {
     try {
       const { data, error } = await supabase.from('plans').select('*').order('created_at', { ascending: false });
       if (data && !error && data.length > 0) {
-        const mapped = data.map((item: any) => ({
-          id: item.id,
-          code: item.code || 'PLN0001',
-          name: item.name || '',
-          carrier: item.carrier || '遠傳電信',
-          type: item.type || '新申辦',
-          network: item.network || '5G',
+        const mapped = data.map((item: Record<string, unknown>) => ({
+          id: String(item.id ?? ''),
+          code: String(item.code || 'PLN0001'),
+          name: String(item.name || ''),
+          carrier: String(item.carrier || '遠傳電信'),
+          type: String(item.type || '新申辦'),
+          network: String(item.network || '5G'),
           monthlyFee: Number(item.monthly_fee || item.monthlyFee || 0),
           contractPeriod: Number(item.contract_period || item.contractPeriod || 24),
           prepayment: Number(item.prepayment || 0),
@@ -80,11 +83,10 @@ export default function PlansPage() {
         setPlans(mapped);
       }
     } catch (err) {
-      console.error('抓取方案失敗:', err);
+      console.log('使用本地暫存資料運作中:', err);
     }
   };
 
-  // ✏️ 點擊編輯按鈕：打開彈窗並帶入舊資料
   const handleEditClick = (plan: Plan) => {
     setEditingPlan(plan);
     setFormData({
@@ -102,7 +104,6 @@ export default function PlansPage() {
     setIsModalOpen(true);
   };
 
-  // ➕ 點擊新增按鈕
   const handleAddClick = () => {
     setEditingPlan(null);
     setFormData({
@@ -130,7 +131,6 @@ export default function PlansPage() {
     }));
   };
 
-  // 💾 儲存修改 / 新增
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -148,37 +148,37 @@ export default function PlansPage() {
     };
 
     if (editingPlan) {
-      // 編輯邏輯
-      const { error } = await supabase.from('plans').update(payload).eq('id', editingPlan.id);
-      if (error) {
-        // 如果資料庫還沒建立，前端同步更新
-        setPlans((prev) => prev.map((p) => (p.id === editingPlan.id ? { ...p, ...formData } : p)));
-      } else {
-        fetchPlans();
+      try {
+        await supabase.from('plans').update(payload).eq('id', editingPlan.id);
+      } catch (err) {
+        console.error('更新方案失敗:', err);
       }
+      setPlans((prev) => prev.map((p) => (p.id === editingPlan.id ? { ...p, ...formData } : p)));
     } else {
-      // 新增邏輯
-      const { error } = await supabase.from('plans').insert([payload]);
-      if (error) {
-        setPlans((prev) => [{ id: String(Date.now()), ...formData }, ...prev]);
-      } else {
-        fetchPlans();
+      const newId = String(Date.now());
+      try {
+        await supabase.from('plans').insert([payload]);
+      } catch (err) {
+        console.error('新增方案失敗:', err);
       }
+      setPlans((prev) => [{ id: newId, ...formData }, ...prev]);
     }
 
     setIsModalOpen(false);
     setEditingPlan(null);
   };
 
-  // 🗑️ 刪除
   const handleDelete = async (id: string) => {
     if (confirm('確定要刪除此方案嗎？')) {
-      await supabase.from('plans').delete().eq('id', id);
+      try {
+        await supabase.from('plans').delete().eq('id', id);
+      } catch (err) {
+        console.error('刪除方案失敗:', err);
+      }
       setPlans((prev) => prev.filter((p) => p.id !== id));
     }
   };
 
-  // 篩選 logic
   const filteredPlans = plans.filter((plan) => {
     const matchesSearch =
       plan.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -191,7 +191,6 @@ export default function PlansPage() {
 
   return (
     <div className="p-8 bg-slate-50 min-h-screen">
-      {/* 標題與新增按鈕 */}
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">方案管理</h1>
@@ -205,7 +204,6 @@ export default function PlansPage() {
         </button>
       </div>
 
-      {/* 搜尋與篩選列 */}
       <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm mb-6 flex items-center justify-between gap-4">
         <div className="relative flex-1">
           <span className="absolute left-3 top-2.5 text-slate-400 text-xs">🔍</span>
@@ -218,7 +216,6 @@ export default function PlansPage() {
           />
         </div>
 
-        {/* 電信商標籤 */}
         <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-semibold">
           {['全部電信', '中華電信', '台灣大哥大', '遠傳電信'].map((carrier) => (
             <button
@@ -233,7 +230,6 @@ export default function PlansPage() {
           ))}
         </div>
 
-        {/* 類型標籤 */}
         <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-semibold">
           {['全部類型', '新申辦', '攜碼', '續約', '手機保險'].map((type) => (
             <button
@@ -249,7 +245,6 @@ export default function PlansPage() {
         </div>
       </div>
 
-      {/* 方案表格 */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <table className="w-full text-left text-xs text-slate-600">
           <thead className="bg-slate-50/80 border-b border-slate-100 text-slate-400 font-medium">
@@ -287,7 +282,6 @@ export default function PlansPage() {
                 <td className="p-4 font-mono font-bold text-blue-600">${plan.storeCommission}</td>
                 <td className="p-4 font-mono font-bold text-amber-600">${plan.actualCommission.toLocaleString()}</td>
                 <td className="p-4 text-center flex items-center justify-center gap-2">
-                  {/* ✏️ 點擊觸發編輯 */}
                   <button
                     onClick={() => handleEditClick(plan)}
                     className="p-1.5 text-slate-400 hover:text-amber-500 hover:bg-amber-50 rounded-lg transition cursor-pointer"
@@ -295,7 +289,6 @@ export default function PlansPage() {
                   >
                     ✏️
                   </button>
-                  {/* 🗑️ 點擊觸發刪除 */}
                   <button
                     onClick={() => handleDelete(plan.id)}
                     className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition cursor-pointer"
@@ -310,7 +303,6 @@ export default function PlansPage() {
         </table>
       </div>
 
-      {/* 彈窗：新增 / 編輯 */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-100">
