@@ -82,11 +82,14 @@ export default function ControlPage() {
     return [];
   });
 
+  // 核心修復：全面掃描所有可能的新品庫存、進貨管理與商品 Key，確保新新增的商品絕對不會漏接
   const loadInventoryProducts = (): Product[] => {
     if (typeof window === 'undefined') return [];
     
-    // 檢查所有可能儲存庫存或新品的 localStorage 鍵值
-    const possibleKeys = [
+    let rawList: any[] = [];
+
+    // 1. 主動列出所有常見的商品/庫存/進貨儲存 Key
+    const targetKeys = [
       'new_products',
       'inventory_products',
       'products',
@@ -96,12 +99,12 @@ export default function ControlPage() {
       'items',
       'warehouse_products',
       'inventory',
-      'goods'
+      'goods',
+      'new_inventory',
+      'product_list'
     ];
 
-    let rawList: any[] = [];
-
-    for (const key of possibleKeys) {
+    for (const key of targetKeys) {
       const data = localStorage.getItem(key);
       if (data) {
         try {
@@ -113,46 +116,51 @@ export default function ControlPage() {
       }
     }
 
-    // 全面掃描所有 localStorage 鍵值，只要裡面是陣列且包含商品特徵就抓進來
-    const allKeys = Object.keys(localStorage);
-    for (const k of allKeys) {
-      const val = localStorage.getItem(k);
-      if (val) {
-        try {
-          const parsed = JSON.parse(val);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            // 檢查是否含有常見商品欄位
-            const hasProductField = parsed.some(item => 
-              item && typeof item === 'object' && (item.name || item.productName || item.title || item.price || item.cost || item.imei || item.serialNo)
-            );
-            if (hasProductField) {
-              rawList = [...rawList, ...parsed];
+    // 2. 萬用盲掃：檢查 localStorage 內的所有 Key，只要是陣列且含有商品相關欄位就全部抓進來
+    try {
+      const allKeys = Object.keys(localStorage);
+      for (const k of allKeys) {
+        const val = localStorage.getItem(k);
+        if (val) {
+          try {
+            const parsed = JSON.parse(val);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              const hasProductField = parsed.some(item => 
+                item && typeof item === 'object' && (
+                  item.name || item.productName || item.title || 
+                  item.price || item.sellPrice || item.cost || 
+                  item.imei || item.serialNo || item.productNo
+                )
+              );
+              if (hasProductField) {
+                rawList = [...rawList, ...parsed];
+              }
             }
-          }
-        } catch (e) { /* ignore */ }
+          } catch (e) { /* ignore */ }
+        }
       }
-    }
+    } catch (e) { console.error(e); }
 
-    // 進行去重 (以 id 或 名稱+imei 為唯一鍵)
-    const uniqueMap = new Map<string, Product>();
-    
-    // 預設示範商品
+    // 3. 預設示範商品（當完全沒有資料時顯示）
     const defaults: Product[] = [
-      { id: 'PRD000015', name: '保貼', price: 150, cost: 30, stock: 1, category: '配件' },
-      { id: 'PRD000016', name: '行動電源', price: 500, cost: 200, stock: 1, category: '配件' },
-      { id: 'PRD000017', name: '空壓殼', price: 150, cost: 30, stock: 1, category: '配件' }
+      { id: 'PRD000015', name: '保貼', price: 150, cost: 30, stock: 10, category: '配件' },
+      { id: 'PRD000016', name: '行動電源', price: 500, cost: 200, stock: 5, category: '配件' },
+      { id: 'PRD000017', name: '空壓殼', price: 150, cost: 30, stock: 8, category: '配件' }
     ];
 
-    [...defaults, ...rawList].forEach((p: any) => {
+    // 4. 標準化欄位對應與唯一性過濾（用 id 或 名稱作為識別）
+    const uniqueMap = new Map<string, Product>();
+
+    [...rawList, ...defaults].forEach((p: any) => {
       if (!p) return;
-      const id = p.id || p.productNo || p.code || p.sku || String(Math.random());
-      const name = p.name || p.productName || p.title || '未命名商品';
+      const id = String(p.id || p.productNo || p.code || p.sku || `PRD_${Math.random().toString(36).slice(2, 8)}`);
+      const name = String(p.name || p.productName || p.title || '未命名商品');
       const price = Number(p.price || p.sellPrice || p.retailPrice || p.unitPrice || 100);
       const cost = Number(p.cost || p.actualCost || p.purchaseCost || p.priceCost || 30);
-      const stock = Number(p.stock ?? p.quantity ?? p.qty ?? p.count ?? 1);
-      const category = p.category || '一般';
-      const imei = p.imei || p.IMEI || '';
-      const serialNo = p.serialNo || p.serial || p.sn || '';
+      const stock = Number(p.stock ?? p.quantity ?? p.qty ?? p.count ?? 10);
+      const category = String(p.category || '一般');
+      const imei = String(p.imei || p.IMEI || '');
+      const serialNo = String(p.serialNo || p.serial || p.sn || '');
 
       const uniqueKey = `${id}_${name}_${imei}`;
       if (!uniqueMap.has(uniqueKey)) {
@@ -215,12 +223,12 @@ export default function ControlPage() {
     return defaultPlans;
   });
 
-  // 定期自動同步抓取最新庫存（支援跨頁面新品庫存管理新增後立刻撈的到）
+  // 高頻率自動同步，確保在「新品庫存管理」新增後，此處能即時撈到最新資料
   useEffect(() => {
     const interval = setInterval(() => {
       const latest = loadInventoryProducts();
       setProducts(latest);
-    }, 300);
+    }, 250);
     return () => clearInterval(interval);
   }, []);
 
@@ -557,7 +565,15 @@ export default function ControlPage() {
               </div>
 
               <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/60 space-y-4">
-                <p className="text-xs font-bold text-slate-700">加入商品 (支援品名、編號、IMEI、序號搜尋)</p>
+                <div className="flex justify-between items-center">
+                  <p className="text-xs font-bold text-slate-700">加入商品 (支援品名、編號、IMEI、序號搜尋)</p>
+                  <button 
+                    onClick={() => setProducts(loadInventoryProducts())} 
+                    className="text-xs text-blue-600 font-bold hover:underline"
+                  >
+                    🔄 重新整理商品庫存
+                  </button>
+                </div>
                 <input
                   type="text"
                   value={productSearch}
@@ -571,7 +587,7 @@ export default function ControlPage() {
                   ) : (
                     filteredProducts.map((p) => (
                       <div 
-                        key={`${p.id}_${p.name}`} 
+                        key={`${p.id}_${p.name}_${p.imei}`} 
                         onClick={() => addToCart(p)} 
                         className={`flex justify-between items-center p-3.5 border rounded-2xl transition ${p.stock <= 0 ? 'bg-slate-100 opacity-60 cursor-not-allowed border-slate-200' : 'border-slate-100 cursor-pointer hover:bg-blue-50/50'}`}
                       >
